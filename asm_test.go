@@ -111,6 +111,12 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: b(0xd3, 42, 0xed, 0x61, 0xdb, 10, 0xed, 0x40),
 		},
+		{
+			fs: ffs{
+				"a.asm": ".loop jr nz, loop",
+			},
+			want: b(0x20, 0xfe),
+		},
 	}
 	for _, tc := range testcases {
 		desc := tc.fs["a.asm"]

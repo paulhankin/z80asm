@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 	"text/scanner"
 )
 
@@ -14,10 +13,6 @@ type expr interface {
 
 type exprInt struct {
 	i int64
-}
-
-type exprReg struct {
-	r arg // always a register
 }
 
 type exprBracket struct {
@@ -60,16 +55,10 @@ func (eb exprBracket) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-func (er exprReg) String() string {
-	return fmt.Sprintf("reg:%s", er.r.String())
-}
-
-func (er exprReg) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
-	return nil, er.r == a, nil
-}
-
 type exprIdent struct {
 	id string
+	r  arg // if non-zero, a register it matches
+	cc arg // if non-zero a condition code it matches
 }
 
 func (ei exprIdent) String() string {
@@ -78,7 +67,14 @@ func (ei exprIdent) String() string {
 
 func (ei exprIdent) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
 	switch argType(a) {
+	case argTypeReg:
+		return nil, ei.r == a, nil
+	case argTypeCC:
+		return nil, ei.cc == a, nil
 	case argTypeInt, argTypeAddress, argTypeRelAddress:
+		if ei.r != 0 || ei.cc != 0 {
+			return nil, false, nil
+		}
 		i, ok := asm.GetLabel(ei.id)
 		if asm.pass > 0 && !ok {
 			return nil, false, asm.scanErrorf("unknown label %q", ei.id)
@@ -229,12 +225,15 @@ func (a *Assembler) scanNumber() (int64, error) {
 	return 0, a.scanErrorf("expected number, but got error: %v", a.scanErr)
 }
 
-var regFromString map[string]arg = getRegArgs()
+var (
+	regFromString = getMatchingArgs(argTypeReg)
+	ccFromString  = getMatchingArgs(argTypeCC)
+)
 
-func getRegArgs() map[string]arg {
+func getMatchingArgs(at argumentType) map[string]arg {
 	r := map[string]arg{}
 	for a := arg(0); a < 1024; a++ {
-		if argType(a) == argTypeReg {
+		if argType(a) == at {
 			r[a.String()] = a
 		}
 	}
@@ -295,10 +294,12 @@ func (a *Assembler) parseExpression(closer rune) (expr, rune, error) {
 			}
 			return a.continueExpr(closer, exprChar{r}, a.scan.Scan(), a.scanErr)
 		case scanner.Ident:
-			if r, ok := regFromString[strings.ToLower(a.scan.TokenText())]; ok {
-				return a.continueExpr(closer, exprReg{r}, a.scan.Scan(), a.scanErr)
+			expr := exprIdent{
+				id: a.scan.TokenText(),
+				r:  regFromString[a.scan.TokenText()],
+				cc: ccFromString[a.scan.TokenText()],
 			}
-			return a.continueExpr(closer, exprIdent{a.scan.TokenText()}, a.scan.Scan(), a.scanErr)
+			return a.continueExpr(closer, expr, a.scan.Scan(), a.scanErr)
 		default:
 			return nil, 0, a.scanErrorf("unexpected token %q", a.scan.TokenText())
 		}
