@@ -50,8 +50,12 @@ func (eb exprBracket) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
 		return nil, ok, err
 	case argTypeIndAddress:
 		return eb.e.evalAs(asm, addr16)
+	case argTypeIndRegPlusInt:
+		/* TODO */
 	case argTypePort:
+		return eb.e.evalAs(asm, const8)
 	case argTypePortC:
+		return eb.e.evalAs(asm, regC)
 	}
 	return nil, false, nil
 }

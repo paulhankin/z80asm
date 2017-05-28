@@ -105,6 +105,12 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: b(0x3a, 0x03, 0x80, 1, 2),
 		},
+		{
+			fs: ffs{
+				"a.asm": "out (42), a; out (c), h; in a, (10); in b, (c)",
+			},
+			want: b(0xd3, 42, 0xed, 0x61, 0xdb, 10, 0xed, 0x40),
+		},
 	}
 	for _, tc := range testcases {
 		desc := tc.fs["a.asm"]
