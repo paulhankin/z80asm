@@ -87,6 +87,12 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: b(1, 2, 3, uint8('h'), uint8('\n'), uint8('\t'), 42),
 		},
+		{
+			fs: ffs{
+				"a.asm": `rrca ; ret ; di`,
+			},
+			want: b(0x0f, 0xc9, 0xf3),
+		},
 	}
 	for _, tc := range testcases {
 		desc := tc.fs["a.asm"]

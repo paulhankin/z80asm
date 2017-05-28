@@ -208,6 +208,9 @@ func (a *Assembler) parseExpression() (expr, rune, error) {
 	for a.scanErr == nil {
 		t := a.scan.Scan()
 		switch t {
+		case ';', '\n', scanner.EOF:
+			/* Return nil for an empty expression */
+			return nil, t, nil
 		case '-':
 			i, err := a.scanNumber()
 			if err != nil {
@@ -245,7 +248,9 @@ func (a *Assembler) parseArgs() ([]expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		r = append(r, e)
+		if e != nil {
+			r = append(r, e)
+		}
 		switch t {
 		case ';', '\n', scanner.EOF:
 			return r, nil
