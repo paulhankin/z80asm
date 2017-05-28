@@ -20,6 +20,42 @@ type exprReg struct {
 	r arg // always a register
 }
 
+type exprBracket struct {
+	e expr
+}
+
+func (eb exprBracket) String() string {
+	return fmt.Sprintf("(%s)", eb.e)
+}
+
+func indRegGetReg(a arg) arg {
+	switch a {
+	case indBC:
+		return regBC
+	case indHL:
+		return regHL
+	case indDE:
+		return regDE
+	case indSP:
+		return regSP
+	}
+	log.Fatalf("passed %s to indRegGetReg", a)
+	return void
+}
+
+func (eb exprBracket) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
+	switch argType(a) {
+	case argTypeIndReg:
+		_, ok, err := eb.e.evalAs(asm, indRegGetReg(a))
+		return nil, ok, err
+	case argTypeIndAddress:
+		return eb.e.evalAs(asm, addr16)
+	case argTypePort:
+	case argTypePortC:
+	}
+	return nil, false, nil
+}
+
 func (er exprReg) String() string {
 	return fmt.Sprintf("reg:%s", er.r.String())
 }
@@ -201,39 +237,64 @@ func getRegArgs() map[string]arg {
 	return r
 }
 
+func (a *Assembler) continueExpr(closer rune, e expr, t rune, err error) (expr, rune, error) {
+	if err != nil {
+		return e, t, err
+	}
+	if closer != 0 && t == closer {
+		switch t {
+		case ')':
+			return exprBracket{e}, a.scan.Scan(), a.scanErr
+		default:
+			log.Fatalf("unknown closer %c", closer)
+		}
+	}
+	if closer != 0 {
+		return nil, 0, a.scanErrorf("unexpected character %c", t)
+	}
+	return e, t, err
+}
+
 // parseExpression parses an expression from the scanner.
 // After parsing the expression, the scanner is advanced
 // to the token after the expression.
-func (a *Assembler) parseExpression() (expr, rune, error) {
+func (a *Assembler) parseExpression(closer rune) (expr, rune, error) {
 	for a.scanErr == nil {
 		t := a.scan.Scan()
 		switch t {
 		case ';', '\n', scanner.EOF:
+			if closer != 0 {
+				return nil, 0, a.scanErrorf("missing closing %c", closer)
+			}
 			/* Return nil for an empty expression */
 			return nil, t, nil
 		case '-':
+			/* TODO: use a.scanExpression to build a proper expression */
 			i, err := a.scanNumber()
 			if err != nil {
 				return nil, 0, err
 			}
-			return exprInt{-i}, a.scan.Scan(), a.scanErr
+			return a.continueExpr(closer, exprInt{-i}, a.scan.Scan(), a.scanErr)
+		case '(':
+			ex, t, err := a.parseExpression(')')
+			return a.continueExpr(closer, ex, t, err)
 		case scanner.Int:
 			i, err := strconv.ParseInt(a.scan.TokenText(), 0, 64)
 			if err != nil {
 				return nil, 0, a.scanErrorf("bad number %q: %v", a.scan.TokenText(), err)
 			}
-			return exprInt{i}, a.scan.Scan(), a.scanErr
+			return a.continueExpr(closer, exprInt{i}, a.scan.Scan(), a.scanErr)
 		case scanner.Char:
 			r, _, _, err := strconv.UnquoteChar(a.scan.TokenText()[1:], '\'')
 			if err != nil {
 				return nil, 0, a.scanErrorf("bad char %q: %v", a.scan.TokenText(), err)
 			}
-			return exprChar{r}, a.scan.Scan(), a.scanErr
+			return a.continueExpr(closer, exprChar{r}, a.scan.Scan(), a.scanErr)
 		case scanner.Ident:
 			if r, ok := regFromString[strings.ToLower(a.scan.TokenText())]; ok {
-				return exprReg{r}, a.scan.Scan(), a.scanErr
+				return a.continueExpr(closer, exprReg{r}, a.scan.Scan(), a.scanErr)
 			}
-			return exprIdent{a.scan.TokenText()}, a.scan.Scan(), a.scanErr
+			return a.continueExpr(closer, exprIdent{a.scan.TokenText()}, a.scan.Scan(), a.scanErr)
 		default:
 			return nil, 0, a.scanErrorf("unexpected token %q", a.scan.TokenText())
 		}
@@ -244,7 +305,7 @@ func (a *Assembler) parseExpression() (expr, rune, error) {
 func (a *Assembler) parseArgs() ([]expr, error) {
 	var r []expr
 	for a.scanErr == nil {
-		e, t, err := a.parseExpression()
+		e, t, err := a.parseExpression(0)
 		if err != nil {
 			return nil, err
 		}
