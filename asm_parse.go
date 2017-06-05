@@ -87,6 +87,17 @@ func (ei exprIdent) String() string {
 	return fmt.Sprintf("id:%s", ei.id)
 }
 
+func (ei exprIdent) getIntValue(asm *Assembler) (int64, bool, error) {
+	if ei.r != 0 || ei.cc != 0 {
+		return 0, false, nil
+	}
+	i, ok := asm.GetLabel(ei.id)
+	if asm.pass > 0 && !ok {
+		return 0, false, asm.scanErrorf("unknown label %q", ei.id)
+	}
+	return int64(i), true, nil
+}
+
 func (ei exprIdent) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
 	switch argType(a) {
 	case argTypeReg:
@@ -94,14 +105,10 @@ func (ei exprIdent) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error
 	case argTypeCC:
 		return nil, ei.cc == a, nil
 	case argTypeInt, argTypeAddress, argTypeRelAddress:
-		if ei.r != 0 || ei.cc != 0 {
-			return nil, false, nil
+		r, ok, err := ei.getIntValue(asm)
+		if err != nil || !ok {
+			return nil, ok, err
 		}
-		i, ok := asm.GetLabel(ei.id)
-		if asm.pass > 0 && !ok {
-			return nil, false, asm.scanErrorf("unknown label %q", ei.id)
-		}
-		r := int64(i)
 		if argType(a) == argTypeRelAddress && ok {
 			// 2 assumes that the length of the instruction is 2 bytes.
 			// That happens to be true for all the z80 instructions
@@ -216,6 +223,8 @@ func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 
 func getIntValue(asm *Assembler, e expr) (int64, bool, error) {
 	switch v := e.(type) {
+	case exprIdent:
+		return v.getIntValue(asm)
 	case exprBracket:
 		return getIntValue(asm, v.e)
 	case exprNeg:
@@ -402,7 +411,7 @@ func (a *Assembler) parseExpression(pri int) (expr, rune, error) {
 				r:  regFromString[a.scan.TokenText()],
 				cc: ccFromString[a.scan.TokenText()],
 			}
-			return expr, a.scan.Scan(), a.scanErr
+			return a.continueExpr(pri, expr, a.scan.Scan(), a.scanErr)
 		default:
 			return nil, 0, a.scanErrorf("unexpected token %q", a.scan.TokenText())
 		}

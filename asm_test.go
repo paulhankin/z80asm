@@ -28,7 +28,7 @@ func toHex(bs []byte) string {
 	return strings.Join(r, " ")
 }
 
-func testSnippet(t *testing.T, fs ffs, want []byte) {
+func testSnippet(t *testing.T, org int, fs ffs, want []byte) {
 	desc := fs["a.asm"]
 	ram := make([]byte, 65536)
 	asm, err := NewAssembler(ram)
@@ -40,16 +40,15 @@ func testSnippet(t *testing.T, fs ffs, want []byte) {
 		t.Errorf("%q: assembler produced error: %v", desc, err)
 		return
 	}
-	progStart := 0x8000
 	for i := 0; i < 65536; i++ {
-		if i < progStart || i >= progStart+len(want) {
+		if i < org || i >= org+len(want) {
 			if ram[i] != 0 {
 				t.Errorf("%q: byte %04x = %02x, want 0", desc, i, ram[i])
 			}
 		}
 	}
-	if got := ram[progStart : progStart+len(want)]; !reflect.DeepEqual(got, want) {
-		t.Errorf("%q: assembled at %04x\ngot:\n%s\nwant:\n%s", desc, progStart, toHex(got), toHex(want))
+	if got := ram[org : org+len(want)]; !reflect.DeepEqual(got, want) {
+		t.Errorf("%q: assembled at %04x\ngot:\n%s\nwant:\n%s", desc, org, toHex(got), toHex(want))
 	}
 }
 
@@ -144,7 +143,7 @@ func TestAsmSnippets(t *testing.T) {
 		},
 	}
 	for _, tc := range testcases {
-		testSnippet(t, tc.fs, tc.want)
+		testSnippet(t, 0x8000, tc.fs, tc.want)
 	}
 }
 
@@ -163,12 +162,18 @@ func TestIntExpressions(t *testing.T) {
 		{"2*(3+4)", 14},
 		{"(1+2)*3", 9},
 		{"8*8*8", 512},
+		{"label+1", 0x6001},
+		{"label/2", 0x3000},
+		{"label*2", 0xc000},
+		{"label+1*2", 0x6002},
+		{"label*2+1", 0xc001},
+		{"label-1", 0x5fff},
 	}
 	for _, tc := range testCases {
 		fs := ffs{
-			"a.asm": fmt.Sprintf("ld hl, %s", tc.expr),
+			"a.asm": fmt.Sprintf("org 0x6000 ; .label ld hl, %s", tc.expr),
 		}
 		want := b(0x21, byte(tc.want%256), byte(tc.want/256))
-		testSnippet(t, fs, want)
+		testSnippet(t, 0x6000, fs, want)
 	}
 }
