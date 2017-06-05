@@ -216,6 +216,16 @@ func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 			return 0, fmt.Errorf("divide by zero")
 		}
 		return n1 / n2, nil
+	case tokGTGT:
+		if n2 < 0 {
+			return 0, fmt.Errorf("shift must be positive")
+		}
+		return n1 >> uint64(n2), nil
+	case tokLTLT:
+		if n2 < 0 {
+			return 0, fmt.Errorf("shift must be positive")
+		}
+		return n1 << uint64(n2), nil
 	}
 	log.Fatalf("unknown binary op: %s", scanner.TokenString(ebo.op))
 	return 0, nil
@@ -345,10 +355,12 @@ func getMatchingArgs(at argumentType) map[string]arg {
 }
 
 var opPrecedence = map[rune]int{
-	'+': 4,
-	'-': 4,
-	'*': 5,
-	'/': 5,
+	tokLTLT: 5,
+	tokGTGT: 5,
+	'+':     4,
+	'-':     4,
+	'*':     5,
+	'/':     5,
 }
 
 func (a *Assembler) continueExpr(pri int, ex expr, tok token, err error) (expr, token, error) {

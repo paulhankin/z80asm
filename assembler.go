@@ -82,13 +82,40 @@ type token struct {
 	s string
 }
 
+const (
+	tokLTLT rune = iota - 10
+	tokGTGT
+)
+
 func (a *Assembler) nextToken() (token, error) {
-	return token{a.scan_.Scan(), a.scan_.TokenText()}, a.scanErr
+	t := a.scan_.Scan()
+	if a.scanErr != nil {
+		return token{}, a.scanErr
+	}
+	switch t {
+	case '<', '>':
+		if a.scan_.Peek() == t {
+			a.scan_.Scan()
+			if t == '<' {
+				return token{tokLTLT, ""}, a.scanErr
+			} else {
+				return token{tokGTGT, ""}, a.scanErr
+			}
+		}
+	}
+	return token{t, a.scan_.TokenText()}, a.scanErr
 }
 
 func (t token) String() string {
-	if t.t == scanner.Ident {
+	switch t.t {
+	case scanner.Int:
+		return t.s
+	case scanner.Ident:
 		return fmt.Sprintf("Ident:%s", t.s)
+	case tokLTLT:
+		return "<<"
+	case tokGTGT:
+		return ">>"
 	}
 	return scanner.TokenString(t.t)
 }

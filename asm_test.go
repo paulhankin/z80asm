@@ -206,6 +206,8 @@ func TestIntExpressions(t *testing.T) {
 		{"label*2+1", 0xc001},
 		{"label-1", 0x5fff},
 		{"label+label", 0xc000},
+		{"16>>2", 4},
+		{"2<<3", 16},
 	}
 	for _, tc := range testCases {
 		fs := ffs{
