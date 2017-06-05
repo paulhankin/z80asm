@@ -296,33 +296,37 @@ func (ei exprInt) String() string {
 // statementEnd scan meaningless tokens until the next ; EOF or newline.
 // Anything meaningful is an error.
 func (a *Assembler) statementEnd() error {
-	for a.scanErr == nil {
-		t := a.scan.Scan()
-		switch t {
+	for {
+		tok, err := a.nextToken()
+		if err != nil {
+			return err
+		}
+		switch tok.t {
 		case ';', '\n', scanner.EOF:
 			return nil
 		default:
-			return a.scanErrorf("expected end of statement, found %q", scanner.TokenString(t))
+			return a.scanErrorf("expected end of statement, found %q", tok)
 		}
 	}
-	return a.scanErr
 }
 
 func (a *Assembler) scanNumber() (int64, error) {
-	for a.scanErr == nil {
-		t := a.scan.Scan()
-		switch t {
+	for {
+		tok, err := a.nextToken()
+		if err != nil {
+			return 0, err
+		}
+		switch tok.t {
 		case scanner.Int:
-			i, err := strconv.ParseInt(a.scan.TokenText(), 0, 64)
+			i, err := strconv.ParseInt(tok.s, 0, 64)
 			if err != nil {
-				return 0, a.scanErrorf("bad number %q: %v", a.scan.TokenText(), err)
+				return 0, a.scanErrorf("bad number %s: %v", tok, err)
 			}
 			return i, nil
 		default:
-			return 0, a.scanErrorf("expected number, found %s", scanner.TokenString(t))
+			return 0, a.scanErrorf("expected number, found %s", tok)
 		}
 	}
-	return 0, a.scanErrorf("expected number, but got error: %v", a.scanErr)
 }
 
 var (
@@ -347,18 +351,15 @@ var opPrecedence = map[rune]int{
 	'/': 5,
 }
 
-func (a *Assembler) continueExpr(pri int, ex expr, t rune, err error) (expr, rune, error) {
-	for err == nil && opPrecedence[t] > 0 && opPrecedence[t] >= pri {
-		ex2, t2, err2 := a.parseExpression(opPrecedence[t], false)
+func (a *Assembler) continueExpr(pri int, ex expr, tok token, err error) (expr, token, error) {
+	for err == nil && opPrecedence[tok.t] > 0 && opPrecedence[tok.t] >= pri {
+		ex2, tok2, err2 := a.parseExpression(opPrecedence[tok.t], false)
 		if err2 != nil {
-			return nil, 0, err2
+			return nil, token{}, err2
 		}
-		ex, t, err = exprBinaryOp{t, ex, ex2}, t2, err2
+		ex, tok, err = exprBinaryOp{tok.t, ex, ex2}, tok2, err2
 	}
-	if err != nil {
-		return nil, 0, err
-	}
-	return ex, t, a.scanErr
+	return ex, tok, err
 }
 
 // parseExpression parses an expression from the scanner.
@@ -371,62 +372,68 @@ func (a *Assembler) continueExpr(pri int, ex expr, t rune, err error) (expr, run
 // 3             ==  !=  <  <=  >  >=
 // 2             &&
 // 1             ||
-func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, rune, error) {
-	for a.scanErr == nil {
-		t := a.scan.Scan()
-		switch t {
+func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) {
+	for {
+		tok, err := a.nextToken()
+		if err != nil {
+			return nil, token{}, err
+		}
+		switch tok.t {
 		case ';', '\n', scanner.EOF:
 			if !emptyOK {
-				return nil, t, a.scanErrorf("unexpected %s", scanner.TokenString(t))
+				return nil, token{}, a.scanErrorf("unexpected %s", tok)
 			}
-			return nil, t, nil
+			return nil, tok, nil
 		case '-':
-			x, t, err := a.parseExpression(6, false)
+			x, tok, err := a.parseExpression(6, false)
 			if err != nil {
-				return nil, 0, err
+				return nil, token{}, err
 			}
-			return a.continueExpr(pri, exprNeg{x}, t, a.scanErr)
+			return a.continueExpr(pri, exprNeg{x}, tok, a.scanErr)
 		case '(':
-			ex, t, err := a.parseExpression(0, false)
+			ex, tok, err := a.parseExpression(0, false)
 			if err != nil {
-				return nil, 0, err
+				return nil, token{}, err
 			}
-			if t != ')' {
-				return nil, 0, a.scanErrorf("found: %s, expected )", scanner.TokenString(t))
+			if tok.t != ')' {
+				return nil, token{}, a.scanErrorf("found: %s, expected )", tok)
 			}
 			ex = exprBracket{ex}
-			return a.continueExpr(0, ex, a.scan.Scan(), a.scanErr)
+			nt, err := a.nextToken()
+			return a.continueExpr(0, ex, nt, err)
 		case scanner.Int:
-			i, err := strconv.ParseInt(a.scan.TokenText(), 0, 64)
+			i, err := strconv.ParseInt(tok.s, 0, 64)
 			if err != nil {
-				return nil, 0, a.scanErrorf("bad number %q: %v", a.scan.TokenText(), err)
+				return nil, token{}, a.scanErrorf("bad number %q: %v", tok, err)
 			}
-			return a.continueExpr(pri, exprInt{i}, a.scan.Scan(), a.scanErr)
+			nt, err := a.nextToken()
+			return a.continueExpr(pri, exprInt{i}, nt, err)
 		case scanner.Char:
-			r, _, _, err := strconv.UnquoteChar(a.scan.TokenText()[1:], '\'')
+			r, _, _, err := strconv.UnquoteChar(tok.s[1:], '\'')
 			if err != nil {
-				return nil, 0, a.scanErrorf("bad char %q: %v", a.scan.TokenText(), err)
+				return nil, token{}, a.scanErrorf("bad char %q: %v", tok, err)
 			}
-			return exprChar{r}, a.scan.Scan(), a.scanErr
+			nt, err := a.nextToken()
+			return exprChar{r}, nt, err
 		case scanner.Ident:
 			expr := exprIdent{
-				id: a.scan.TokenText(),
-				r:  regFromString[a.scan.TokenText()],
-				cc: ccFromString[a.scan.TokenText()],
+				id: tok.s,
+				r:  regFromString[tok.s],
+				cc: ccFromString[tok.s],
 			}
-			return a.continueExpr(pri, expr, a.scan.Scan(), a.scanErr)
+			nt, err := a.nextToken()
+			return a.continueExpr(pri, expr, nt, err)
 		default:
-			return nil, 0, a.scanErrorf("unexpected token %q", a.scan.TokenText())
+			return nil, token{}, a.scanErrorf("unexpected token %s", tok)
 		}
 	}
-	return nil, 0, a.scanErr
 }
 
 func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 	var r []expr
 	comma := false
 	for a.scanErr == nil {
-		e, t, err := a.parseExpression(0, true)
+		e, tok, err := a.parseExpression(0, true)
 		if err != nil {
 			return nil, err
 		}
@@ -434,7 +441,7 @@ func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 			comma = false
 			r = append(r, e)
 		}
-		switch t {
+		switch tok.t {
 		case ';', '\n', scanner.EOF:
 			if comma && !trailingOK {
 				return nil, a.scanErrorf("unexpected trailing ,")
@@ -444,7 +451,7 @@ func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 			comma = true
 			continue
 		default:
-			return nil, a.scanErrorf("unexpected %s", scanner.TokenString(t))
+			return nil, a.scanErrorf("unexpected %s", tok)
 		}
 	}
 	return nil, a.scanErr

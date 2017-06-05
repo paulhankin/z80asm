@@ -19,7 +19,7 @@ type Assembler struct {
 	p       uint16
 	l       map[string]uint16
 	m       []uint8
-	scan    *scanner.Scanner
+	scan_   *scanner.Scanner
 	scanErr error
 }
 
@@ -67,24 +67,43 @@ func (a *Assembler) assembleFile(filename string) error {
 	scan.Error = func(s *scanner.Scanner, msg string) {
 		a.scanErr = a.scanErrorf("%s", msg)
 	}
-	a.scan = &scan
+	a.scan_ = &scan
 	return a.assemble()
 }
 
 func (a *Assembler) scanErrorf(fs string, args ...interface{}) error {
-	header := fmt.Sprintf("%s:%d.%d", a.scan.Position.Filename, a.scan.Position.Line, a.scan.Position.Column)
+	header := fmt.Sprintf("%s:%d.%d", a.scan_.Position.Filename, a.scan_.Position.Line, a.scan_.Position.Column)
 	rest := fmt.Sprintf(fs, args...)
 	return errors.New(header + "\t" + rest)
 }
 
+type token struct {
+	t rune
+	s string
+}
+
+func (a *Assembler) nextToken() (token, error) {
+	return token{a.scan_.Scan(), a.scan_.TokenText()}, a.scanErr
+}
+
+func (t token) String() string {
+	if t.t == scanner.Ident {
+		return fmt.Sprintf("Ident:%s", t.s)
+	}
+	return scanner.TokenString(t.t)
+}
+
 func (a *Assembler) assemble() error {
-	for a.scanErr == nil {
-		t := a.scan.Scan()
-		switch t {
+	for {
+		tok, err := a.nextToken()
+		if err != nil {
+			return err
+		}
+		switch tok.t {
 		case scanner.EOF:
 			return nil
 		case scanner.Ident:
-			if err := a.assembleCommand(a.scan.TokenText()); err != nil {
+			if err := a.assembleCommand(tok.s); err != nil {
 				return err
 			}
 		case ';':
@@ -96,10 +115,9 @@ func (a *Assembler) assemble() error {
 				return err
 			}
 		default:
-			return a.scanErrorf("unexpected %s", scanner.TokenString(t))
+			return a.scanErrorf("unexpected %s", tok)
 		}
 	}
-	return a.scanErrorf("%v", a.scanErr)
 }
 
 func (a *Assembler) writeByte(u uint8) error {
@@ -805,12 +823,15 @@ func (a *Assembler) setLabel(label string) error {
 }
 
 func (a *Assembler) assembleLabel() error {
-	t := a.scan.Scan()
-	switch t {
+	tok, err := a.nextToken()
+	if err != nil {
+		return err
+	}
+	switch tok.t {
 	case scanner.Ident:
-		return a.setLabel(a.scan.TokenText())
+		return a.setLabel(tok.s)
 	default:
-		return a.scanErrorf("unexpected %s", scanner.TokenString(t))
+		return a.scanErrorf("unexpected %s", tok)
 	}
 }
 
