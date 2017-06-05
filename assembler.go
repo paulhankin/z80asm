@@ -133,7 +133,7 @@ func commandDB(a *Assembler) error {
 		return err
 	}
 	for _, arg := range args {
-		bs, ok, err := arg.evalAs(a, const8)
+		bs, ok, err := arg.evalAs(a, const8, false)
 		if err != nil {
 			return err
 		}
@@ -708,14 +708,14 @@ func (asm *Assembler) argsCompatible(vals []expr, a arg) ([]byte, bool, error) {
 		return nil, true, nil
 	}
 	if a >= 1024 {
-		a0, ok, err := vals[0].evalAs(asm, a/1024)
+		a0, ok, err := vals[0].evalAs(asm, a/1024, true)
 		if err != nil {
 			return nil, false, err
 		}
 		if !ok {
 			return nil, false, nil
 		}
-		a1, ok, err := vals[1].evalAs(asm, a%1024)
+		a1, ok, err := vals[1].evalAs(asm, a%1024, true)
 		if err != nil {
 			return nil, false, err
 		}
@@ -724,7 +724,7 @@ func (asm *Assembler) argsCompatible(vals []expr, a arg) ([]byte, bool, error) {
 		}
 		return append(a0, a1...), true, nil
 	}
-	return vals[0].evalAs(asm, a)
+	return vals[0].evalAs(asm, a, true)
 }
 
 func (ca commandAssembler) W(a *Assembler) error {
