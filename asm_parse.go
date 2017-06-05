@@ -271,65 +271,49 @@ func getMatchingArgs(at argumentType) map[string]arg {
 	return r
 }
 
-func (a *Assembler) continueExpr(closer rune, e expr, t rune, err error) (expr, rune, error) {
-	if err != nil {
-		return e, t, err
-	}
-	if closer != 0 && t == closer {
-		switch t {
-		case ')':
-			return exprBracket{e}, a.scan.Scan(), a.scanErr
-		default:
-			log.Fatalf("unknown closer %c", closer)
-		}
-	}
-	if closer != 0 {
-		return nil, 0, a.scanErrorf("unexpected character %c", t)
-	}
-	return e, t, err
-}
-
 // parseExpression parses an expression from the scanner.
 // After parsing the expression, the scanner is advanced
 // to the token after the expression.
-func (a *Assembler) parseExpression(closer rune) (expr, rune, error) {
+func (a *Assembler) parseExpression() (expr, rune, error) {
 	for a.scanErr == nil {
 		t := a.scan.Scan()
 		switch t {
 		case ';', '\n', scanner.EOF:
-			if closer != 0 {
-				return nil, 0, a.scanErrorf("missing closing %c", closer)
-			}
-			/* Return nil for an empty expression */
 			return nil, t, nil
 		case '-':
-			x, t, err := a.parseExpression(0)
+			x, t, err := a.parseExpression()
 			if err != nil {
 				return nil, 0, err
 			}
-			return a.continueExpr(closer, exprNeg{x}, t, a.scanErr)
+			return exprNeg{x}, t, a.scanErr
 		case '(':
-			ex, t, err := a.parseExpression(')')
-			return a.continueExpr(closer, ex, t, err)
+			ex, t, err := a.parseExpression()
+			if err != nil {
+				return nil, 0, err
+			}
+			if t != ')' {
+				return nil, 0, a.scanErrorf("found: %c, expected )", t)
+			}
+			return exprBracket{ex}, a.scan.Scan(), err
 		case scanner.Int:
 			i, err := strconv.ParseInt(a.scan.TokenText(), 0, 64)
 			if err != nil {
 				return nil, 0, a.scanErrorf("bad number %q: %v", a.scan.TokenText(), err)
 			}
-			return a.continueExpr(closer, exprInt{i}, a.scan.Scan(), a.scanErr)
+			return exprInt{i}, a.scan.Scan(), a.scanErr
 		case scanner.Char:
 			r, _, _, err := strconv.UnquoteChar(a.scan.TokenText()[1:], '\'')
 			if err != nil {
 				return nil, 0, a.scanErrorf("bad char %q: %v", a.scan.TokenText(), err)
 			}
-			return a.continueExpr(closer, exprChar{r}, a.scan.Scan(), a.scanErr)
+			return exprChar{r}, a.scan.Scan(), a.scanErr
 		case scanner.Ident:
 			expr := exprIdent{
 				id: a.scan.TokenText(),
 				r:  regFromString[a.scan.TokenText()],
 				cc: ccFromString[a.scan.TokenText()],
 			}
-			return a.continueExpr(closer, expr, a.scan.Scan(), a.scanErr)
+			return expr, a.scan.Scan(), a.scanErr
 		default:
 			return nil, 0, a.scanErrorf("unexpected token %q", a.scan.TokenText())
 		}
@@ -340,7 +324,7 @@ func (a *Assembler) parseExpression(closer rune) (expr, rune, error) {
 func (a *Assembler) parseArgs() ([]expr, error) {
 	var r []expr
 	for a.scanErr == nil {
-		e, t, err := a.parseExpression(0)
+		e, t, err := a.parseExpression()
 		if err != nil {
 			return nil, err
 		}
