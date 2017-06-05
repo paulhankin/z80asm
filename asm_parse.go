@@ -217,7 +217,7 @@ func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 		}
 		return n1 / n2, nil
 	}
-	log.Fatalf("unknown binary op: %c", ebo.op)
+	log.Fatalf("unknown binary op: %s", scanner.TokenString(ebo.op))
 	return 0, nil
 }
 
@@ -349,7 +349,7 @@ var opPrecedence = map[rune]int{
 
 func (a *Assembler) continueExpr(pri int, ex expr, t rune, err error) (expr, rune, error) {
 	for err == nil && opPrecedence[t] > 0 && opPrecedence[t] >= pri {
-		ex2, t2, err2 := a.parseExpression(opPrecedence[t])
+		ex2, t2, err2 := a.parseExpression(opPrecedence[t], false)
 		if err2 != nil {
 			return nil, 0, err2
 		}
@@ -371,25 +371,28 @@ func (a *Assembler) continueExpr(pri int, ex expr, t rune, err error) (expr, run
 // 3             ==  !=  <  <=  >  >=
 // 2             &&
 // 1             ||
-func (a *Assembler) parseExpression(pri int) (expr, rune, error) {
+func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, rune, error) {
 	for a.scanErr == nil {
 		t := a.scan.Scan()
 		switch t {
 		case ';', '\n', scanner.EOF:
+			if !emptyOK {
+				return nil, t, a.scanErrorf("unexpected %s", scanner.TokenString(t))
+			}
 			return nil, t, nil
 		case '-':
-			x, t, err := a.parseExpression(6)
+			x, t, err := a.parseExpression(6, false)
 			if err != nil {
 				return nil, 0, err
 			}
 			return a.continueExpr(pri, exprNeg{x}, t, a.scanErr)
 		case '(':
-			ex, t, err := a.parseExpression(0)
+			ex, t, err := a.parseExpression(0, false)
 			if err != nil {
 				return nil, 0, err
 			}
 			if t != ')' {
-				return nil, 0, a.scanErrorf("found: %c, expected )", t)
+				return nil, 0, a.scanErrorf("found: %s, expected )", scanner.TokenString(t))
 			}
 			ex = exprBracket{ex}
 			return a.continueExpr(0, ex, a.scan.Scan(), a.scanErr)
@@ -419,23 +422,29 @@ func (a *Assembler) parseExpression(pri int) (expr, rune, error) {
 	return nil, 0, a.scanErr
 }
 
-func (a *Assembler) parseArgs() ([]expr, error) {
+func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 	var r []expr
+	comma := false
 	for a.scanErr == nil {
-		e, t, err := a.parseExpression(0)
+		e, t, err := a.parseExpression(0, true)
 		if err != nil {
 			return nil, err
 		}
 		if e != nil {
+			comma = false
 			r = append(r, e)
 		}
 		switch t {
 		case ';', '\n', scanner.EOF:
+			if comma && !trailingOK {
+				return nil, a.scanErrorf("unexpected trailing ,")
+			}
 			return r, nil
 		case ',':
+			comma = true
 			continue
 		default:
-			return nil, a.scanErrorf("unexpected character %c", t)
+			return nil, a.scanErrorf("unexpected %s", scanner.TokenString(t))
 		}
 	}
 	return nil, a.scanErr

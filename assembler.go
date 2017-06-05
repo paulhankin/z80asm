@@ -128,7 +128,7 @@ func (a *Assembler) GetLabel(l string) (uint16, bool) {
 }
 
 func commandDB(a *Assembler) error {
-	args, err := a.parseArgs()
+	args, err := a.parseArgs(true)
 	if err != nil {
 		return err
 	}
@@ -728,7 +728,7 @@ func (asm *Assembler) argsCompatible(vals []expr, a arg) ([]byte, bool, error) {
 }
 
 func (ca commandAssembler) W(a *Assembler) error {
-	vals, err := a.parseArgs()
+	vals, err := a.parseArgs(false)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,24 @@ func toHex(bs []byte) string {
 	return strings.Join(r, " ")
 }
 
+func testFailureSnippet(t *testing.T, fs ffs, mustContain string) {
+	desc := fs["a.asm"]
+	ram := make([]byte, 65536)
+	asm, err := NewAssembler(ram)
+	if err != nil {
+		t.Fatalf("%q: failed to create assembler: %v", desc, err)
+	}
+	asm.opener = fs.open
+	err = asm.AssembleFile("a.asm")
+	if err == nil {
+		t.Errorf("%q: assembler succeeded, expected match %q", desc, mustContain)
+		return
+	}
+	if !strings.Contains(err.Error(), mustContain) {
+		t.Errorf("%q: failure %q does not match %q", desc, err.Error(), mustContain)
+	}
+}
+
 func testSnippet(t *testing.T, org int, fs ffs, want []byte) {
 	desc := fs["a.asm"]
 	ram := make([]byte, 65536)
@@ -147,6 +165,25 @@ func TestAsmSnippets(t *testing.T) {
 	}
 }
 
+func TestParseErrors(t *testing.T) {
+	testCases := []struct {
+		asm     string
+		wantErr string // partial match
+	}{
+		{"xor a, b", "no suitable"},
+		{"ld hl, (42", ")"},
+		{"ld a, (1+2*3", ")"},
+		{"ld a, 2+3+", "EOF"},
+		{"ld a, 1 ld b, 2", "unexpected Ident"},
+		{"ld b, (123)", "no suitable"},
+		{"xor a,", "unexpected trailing ,"},
+	}
+	for _, tc := range testCases {
+		fs := ffs{"a.asm": tc.asm}
+		testFailureSnippet(t, fs, tc.wantErr)
+	}
+}
+
 func TestIntExpressions(t *testing.T) {
 	testCases := []struct {
 		expr string // An arithmetic operation.
@@ -168,6 +205,7 @@ func TestIntExpressions(t *testing.T) {
 		{"label+1*2", 0x6002},
 		{"label*2+1", 0xc001},
 		{"label-1", 0x5fff},
+		{"label+label", 0xc000},
 	}
 	for _, tc := range testCases {
 		fs := ffs{
