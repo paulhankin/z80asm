@@ -15,6 +15,14 @@ type exprInt struct {
 	i int64
 }
 
+type exprNeg struct {
+	e expr
+}
+
+func (en exprNeg) String() string {
+	return fmt.Sprintf("-%s", en.e)
+}
+
 type exprBracket struct {
 	e expr
 }
@@ -173,6 +181,29 @@ func serializeIntArg(asm *Assembler, i int64, a arg) ([]byte, bool, error) {
 
 }
 
+func getIntValue(asm *Assembler, e expr) (int64, bool, error) {
+	switch v := e.(type) {
+	case exprNeg:
+		n, ok, err := getIntValue(asm, v.e)
+		if !ok || err != nil {
+			return 0, ok, err
+		}
+		return -n, true, nil
+	case exprInt:
+		return v.i, true, nil
+	default:
+		return 0, false, nil
+	}
+}
+
+func (en exprNeg) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
+	iv, ok, err := getIntValue(asm, en)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	return exprInt{iv}.evalAs(asm, a)
+}
+
 func (ei exprInt) evalAs(asm *Assembler, a arg) ([]byte, bool, error) {
 	switch argType(a) {
 	case argTypeInt, argTypeAddress:
@@ -272,12 +303,11 @@ func (a *Assembler) parseExpression(closer rune) (expr, rune, error) {
 			/* Return nil for an empty expression */
 			return nil, t, nil
 		case '-':
-			/* TODO: use a.scanExpression to build a proper expression */
-			i, err := a.scanNumber()
+			x, t, err := a.parseExpression(0)
 			if err != nil {
 				return nil, 0, err
 			}
-			return a.continueExpr(closer, exprInt{-i}, a.scan.Scan(), a.scanErr)
+			return a.continueExpr(closer, exprNeg{x}, t, a.scanErr)
 		case '(':
 			ex, t, err := a.parseExpression(')')
 			return a.continueExpr(closer, ex, t, err)

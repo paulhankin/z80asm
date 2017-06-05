@@ -28,6 +28,31 @@ func toHex(bs []byte) string {
 	return strings.Join(r, " ")
 }
 
+func testSnippet(t *testing.T, fs ffs, want []byte) {
+	desc := fs["a.asm"]
+	ram := make([]byte, 65536)
+	asm, err := NewAssembler(ram)
+	if err != nil {
+		t.Fatalf("%q: failed to create assembler: %v", desc, err)
+	}
+	asm.opener = fs.open
+	if err := asm.AssembleFile("a.asm"); err != nil {
+		t.Errorf("%q: assembler produced error: %v", desc, err)
+		return
+	}
+	progStart := 0x8000
+	for i := 0; i < 65536; i++ {
+		if i < progStart || i >= progStart+len(want) {
+			if ram[i] != 0 {
+				t.Errorf("%q: byte %04x = %02x, want 0", desc, i, ram[i])
+			}
+		}
+	}
+	if got := ram[progStart : progStart+len(want)]; !reflect.DeepEqual(got, want) {
+		t.Errorf("%q: assembled at %04x\ngot:\n%s\nwant:\n%s", desc, progStart, toHex(got), toHex(want))
+	}
+}
+
 func TestAsmSnippets(t *testing.T) {
 	testcases := []struct {
 		fs   ffs
@@ -119,27 +144,31 @@ func TestAsmSnippets(t *testing.T) {
 		},
 	}
 	for _, tc := range testcases {
-		desc := tc.fs["a.asm"]
-		ram := make([]byte, 65536)
-		asm, err := NewAssembler(ram)
-		if err != nil {
-			t.Fatalf("%q: failed to create assembler: %v", desc, err)
+		testSnippet(t, tc.fs, tc.want)
+	}
+}
+
+func TestIntExpressions(t *testing.T) {
+	testCases := []struct {
+		expr string // An arithmetic operation.
+		want uint16
+	}{
+		{"1+2", 3},
+		{"7*4", 28},
+		{"1-2", 65536 - 1},
+		{"8/4", 2},
+		{"-1+2", 1},
+		{"1+2*3", 7},
+		{"2*3+4", 10},
+		{"2*(3+4)", 14},
+		{"(1+2)*3", 9},
+		{"8*8*8", 512},
+	}
+	for _, tc := range testCases {
+		fs := ffs{
+			"a.asm": fmt.Sprintf("ld hl, %s", tc.expr),
 		}
-		asm.opener = tc.fs.open
-		if err := asm.AssembleFile("a.asm"); err != nil {
-			t.Errorf("%q: assembler produced error: %v", desc, err)
-			continue
-		}
-		progStart := 0x8000
-		for i := 0; i < 65536; i++ {
-			if i < progStart || i >= progStart+len(tc.want) {
-				if ram[i] != 0 {
-					t.Errorf("%q: byte %04x = %02x, want 0", desc, i, ram[i])
-				}
-			}
-		}
-		if got := ram[progStart : progStart+len(tc.want)]; !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("%q: assembled at %04x\ngot:\n%s\nwant:\n%s", desc, progStart, toHex(got), toHex(tc.want))
-		}
+		want := b(0x21, byte(tc.want%256), byte(tc.want/256))
+		testSnippet(t, fs, want)
 	}
 }
