@@ -304,6 +304,12 @@ func TestParseErrors(t *testing.T) {
 		{"db 256", "not in the range"},
 		{"dw 65536", "not in the range"},
 		{".label ld hl, 42 ; .label ld bc, 42", "Label \"label\" redefined"},
+		{"ld z, (1+2)", "(1 + 2)"},
+		{"ld z, 1+(2*3)", "1 + 2 * 3"},
+		{"ld z, 1*(2+3)", "1 * (2 + 3)"},
+		{"ld z, 1+2+3", "1 + 2 + 3"},
+		{"ld z, 1+(2+3)", "1 + (2 + 3)"},
+		{"ld z, (1+2)+3", "1 + 2 + 3"},
 	}
 	for _, tc := range testCases {
 		testFailureSnippet(t, ffs{"a.asm": tc.asm}, tc.wantErr)
@@ -368,6 +374,7 @@ func TestIntExpressions(t *testing.T) {
 		{"1==2 && 2==2", 0},
 		{"1==2 || 2==2", 1},
 		{"1==2 || !(2==2)", 0},
+		{"3-2-1", 0},
 	}
 	for _, tc := range testCases {
 		fs := ffs{

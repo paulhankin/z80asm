@@ -9,6 +9,7 @@ import (
 
 type expr interface {
 	evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error)
+	stringPri(pri int) string
 }
 
 type exprInt struct {
@@ -33,12 +34,31 @@ func (e exprString) String() string {
 	return fmt.Sprintf("%q", e.s)
 }
 
+func (e exprString) stringPri(int) string {
+	return e.String()
+}
+
 func (e exprBinaryOp) String() string {
-	return fmt.Sprintf("[%s %c %s]", e.e1, e.op, e.e2)
+	return e.stringPri(0)
+}
+
+func (e exprBinaryOp) stringPri(pri int) string {
+	myPri := opPrecedence[e.op]
+	left := e.e1.stringPri(myPri)
+	right := e.e2.stringPri(myPri + 1)
+	result := fmt.Sprintf("%s %c %s", left, e.op, right)
+	if myPri < pri {
+		return "(" + result + ")"
+	}
+	return result
 }
 
 func (en exprUnaryOp) String() string {
-	return fmt.Sprintf("%c%s", en.op, en.e)
+	return en.stringPri(0)
+}
+
+func (en exprUnaryOp) stringPri(pri int) string {
+	return fmt.Sprintf("%c%s", en.op, en.e.stringPri(precUnary))
 }
 
 type exprBracket struct {
@@ -47,6 +67,13 @@ type exprBracket struct {
 
 func (eb exprBracket) String() string {
 	return fmt.Sprintf("(%s)", eb.e)
+}
+
+func (eb exprBracket) stringPri(pri int) string {
+	if pri > 0 {
+		return eb.e.stringPri(pri)
+	}
+	return eb.String()
 }
 
 func indRegGetReg(a arg) arg {
@@ -101,6 +128,10 @@ type exprIdent struct {
 
 func (ei exprIdent) String() string {
 	return fmt.Sprintf("%s", ei.id)
+}
+
+func (ei exprIdent) stringPri(int) string {
+	return ei.String()
 }
 
 func (ei exprIdent) getIntValue(asm *Assembler) (int64, bool, error) {
@@ -158,6 +189,10 @@ func (ec exprChar) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error)
 
 func (ec exprChar) String() string {
 	return fmt.Sprintf("%c", ec.r)
+}
+
+func (ec exprChar) stringPri(int) string {
+	return ec.String()
 }
 
 var argVals = map[arg]int64{
@@ -385,6 +420,10 @@ func (ei exprInt) String() string {
 	return fmt.Sprintf("%d", ei.i)
 }
 
+func (ei exprInt) stringPri(int) string {
+	return ei.String()
+}
+
 var (
 	regFromString = getMatchingArgs(argTypeReg)
 	ccFromString  = getMatchingArgs(argTypeCC)
@@ -400,30 +439,32 @@ func getMatchingArgs(at argumentType) map[string]arg {
 	return r
 }
 
+var precUnary = 12
+
 var opPrecedence = map[rune]int{
-	'*':       5,
-	'/':       5,
-	'%':       5,
-	tokLTLT:   5,
-	tokGTGT:   5,
-	'&':       5,
-	tokAndNot: 5,
-	'+':       4,
-	'-':       4,
-	'|':       4,
-	'^':       4,
-	tokEqEq:   3,
-	tokGTEq:   3,
-	tokLTEq:   3,
-	'<':       3,
-	'>':       3,
-	tokNotEq:  3,
-	tokAndAnd: 2,
-	tokOrOr:   1,
+	'*':       10,
+	'/':       10,
+	'%':       10,
+	tokLTLT:   10,
+	tokGTGT:   10,
+	'&':       10,
+	tokAndNot: 10,
+	'+':       8,
+	'-':       8,
+	'|':       8,
+	'^':       8,
+	tokEqEq:   6,
+	tokGTEq:   6,
+	tokLTEq:   6,
+	'<':       6,
+	'>':       6,
+	tokNotEq:  6,
+	tokAndAnd: 4,
+	tokOrOr:   2,
 }
 
 func (a *Assembler) continueExpr(pri int, ex expr, tok token, err error) (expr, token, error) {
-	for err == nil && opPrecedence[tok.t] > 0 && opPrecedence[tok.t] >= pri {
+	for err == nil && opPrecedence[tok.t] > 0 && opPrecedence[tok.t] > pri {
 		ex2, tok2, err2 := a.parseExpression(opPrecedence[tok.t], false)
 		if err2 != nil {
 			return nil, token{}, err2
@@ -457,7 +498,7 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 			return nil, tok, nil
 		case '-', '^', '!':
 			op := tok.t
-			x, tok, err := a.parseExpression(6, false)
+			x, tok, err := a.parseExpression(precUnary, false)
 			return a.continueExpr(pri, exprUnaryOp{op, x}, tok, err)
 		case '(':
 			ex, tok, err := a.parseExpression(0, false)
