@@ -85,24 +85,52 @@ type token struct {
 const (
 	tokLTLT rune = iota - 10
 	tokGTGT
+	tokAndNot
+	tokEqEq
+	tokNotEq
+	tokLTEq
+	tokGTEq
+	tokAndAnd
+	tokOrOr
 )
+
+var tokStrings = map[rune]string{
+	tokLTLT:   "<<",
+	tokGTGT:   ">>",
+	tokAndNot: "&^",
+	tokEqEq:   "==",
+	tokNotEq:  "!=",
+	tokLTEq:   "<=",
+	tokGTEq:   ">=",
+	tokAndAnd: "&&",
+	tokOrOr:   "||",
+}
+
+var tokOperatorPrefixes = makeOperatorCompletions()
+
+func makeOperatorCompletions() map[rune]map[rune]rune {
+	var r = map[rune]map[rune]rune{}
+	for k, v := range tokStrings {
+		if _, ok := r[rune(v[0])]; !ok {
+			r[rune(v[0])] = map[rune]rune{}
+		}
+		r[rune(v[0])][rune(v[1])] = k
+	}
+	return r
+}
 
 func (a *Assembler) nextToken() (token, error) {
 	t := a.scan_.Scan()
 	if a.scanErr != nil {
 		return token{}, a.scanErr
 	}
-	switch t {
-	case '<', '>':
-		if a.scan_.Peek() == t {
+	if m2 := tokOperatorPrefixes[t]; m2 != nil {
+		if tok := m2[a.scan_.Peek()]; tok != 0 {
 			a.scan_.Scan()
-			if t == '<' {
-				return token{tokLTLT, ""}, a.scanErr
-			} else {
-				return token{tokGTGT, ""}, a.scanErr
-			}
+			return token{tok, ""}, a.scanErr
 		}
 	}
+
 	return token{t, a.scan_.TokenText()}, a.scanErr
 }
 
@@ -112,10 +140,9 @@ func (t token) String() string {
 		return t.s
 	case scanner.Ident:
 		return fmt.Sprintf("Ident:%s", t.s)
-	case tokLTLT:
-		return "<<"
-	case tokGTGT:
-		return ">>"
+	}
+	if s, ok := tokStrings[t.t]; ok {
+		return s
 	}
 	return scanner.TokenString(t.t)
 }
@@ -307,7 +334,7 @@ const (
 	indIXplus
 	indIYplus
 	indSP
-	const8 // TODO: check these are used
+	const8
 	const16
 	constS8
 	addr16 // TODO: use this consistently
@@ -670,18 +697,6 @@ var commandTable = map[string]instrAssembler{
 	//"ds":  commandDS,
 }
 
-type command0assembler struct {
-	bs []byte
-}
-
-func (c0a command0assembler) W(a *Assembler) error {
-	/* TODO: merge this code with commandAssembler */
-	if err := a.writeBytes(c0a.bs); err != nil {
-		return err
-	}
-	return a.statementEnd()
-}
-
 type commandAssembler struct {
 	cmd  string
 	args map[arg][]byte
@@ -808,7 +823,7 @@ func init() {
 		if _, ok := commandTable[c0]; ok {
 			panic("duplicate command: " + c0)
 		}
-		commandTable[c0] = command0assembler{bs}
+		commandTable[c0] = commandAssembler{c0, map[arg][]byte{void: bs}}
 	}
 	for c0, os := range commandsArgs {
 		if _, ok := commandTable[c0]; ok {
@@ -819,15 +834,22 @@ func init() {
 }
 
 func commandOrg(a *Assembler) error {
-	n, err := a.scanNumber()
+	args, err := a.parseArgs(true)
 	if err != nil {
-		return a.scanErrorf("org wants address: %v", err)
+		return err
+	}
+	if len(args) != 1 {
+		return a.scanErrorf("org takes one argument: %d found", len(args))
+	}
+	n, ok, err := getIntValue(a, args[0])
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return a.scanErrorf("org wants address, found %s", args[0])
 	}
 	if n < 16384 || n > 65535 {
 		return a.scanErrorf("org %x out of range", n)
-	}
-	if err := a.statementEnd(); err != nil {
-		return err
 	}
 	a.p = uint16(n)
 	return nil
@@ -876,11 +898,6 @@ func GetPlane(prefix []byte) []string {
 	collisions := make([][]string, 256)
 	for cmd, asm := range commandTable {
 		switch v := asm.(type) {
-		case command0assembler:
-			if b, ok := getByte(prefix, v.bs); ok {
-				result[b] = cmd
-				collisions[b] = append(collisions[b], result[b])
-			}
 		case commandAssembler:
 			for o, bs := range v.args {
 				if b, ok := getByte(prefix, bs); ok {

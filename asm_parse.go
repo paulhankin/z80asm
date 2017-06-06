@@ -203,6 +203,13 @@ func serializeIntArg(asm *Assembler, i int64, a arg) ([]byte, bool, error) {
 
 }
 
+func bool2int(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 	switch ebo.op {
 	case '+':
@@ -216,6 +223,27 @@ func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 			return 0, fmt.Errorf("divide by zero")
 		}
 		return n1 / n2, nil
+	case '%':
+		if n2 == 0 {
+			return 0, fmt.Errorf("second arg of % must be non-zero")
+		}
+		return n1 % n2, nil
+	case '&':
+		return n1 & n2, nil
+	case '|':
+		return n1 | n2, nil
+	case tokEqEq:
+		return bool2int(n1 == n2), nil
+	case tokNotEq:
+		return bool2int(n1 != n2), nil
+	case tokLTEq:
+		return bool2int(n1 <= n2), nil
+	case tokGTEq:
+		return bool2int(n1 >= n2), nil
+	case '<':
+		return bool2int(n1 < n2), nil
+	case '>':
+		return bool2int(n1 > n2), nil
 	case tokGTGT:
 		if n2 < 0 {
 			return 0, fmt.Errorf("shift must be positive")
@@ -303,42 +331,6 @@ func (ei exprInt) String() string {
 	return fmt.Sprintf("%d", ei.i)
 }
 
-// statementEnd scan meaningless tokens until the next ; EOF or newline.
-// Anything meaningful is an error.
-func (a *Assembler) statementEnd() error {
-	for {
-		tok, err := a.nextToken()
-		if err != nil {
-			return err
-		}
-		switch tok.t {
-		case ';', '\n', scanner.EOF:
-			return nil
-		default:
-			return a.scanErrorf("expected end of statement, found %q", tok)
-		}
-	}
-}
-
-func (a *Assembler) scanNumber() (int64, error) {
-	for {
-		tok, err := a.nextToken()
-		if err != nil {
-			return 0, err
-		}
-		switch tok.t {
-		case scanner.Int:
-			i, err := strconv.ParseInt(tok.s, 0, 64)
-			if err != nil {
-				return 0, a.scanErrorf("bad number %s: %v", tok, err)
-			}
-			return i, nil
-		default:
-			return 0, a.scanErrorf("expected number, found %s", tok)
-		}
-	}
-}
-
 var (
 	regFromString = getMatchingArgs(argTypeReg)
 	ccFromString  = getMatchingArgs(argTypeCC)
@@ -355,12 +347,23 @@ func getMatchingArgs(at argumentType) map[string]arg {
 }
 
 var opPrecedence = map[rune]int{
-	tokLTLT: 5,
-	tokGTGT: 5,
-	'+':     4,
-	'-':     4,
-	'*':     5,
-	'/':     5,
+	'*':       5,
+	'/':       5,
+	'%':       5,
+	tokLTLT:   5,
+	tokGTGT:   5,
+	'&':       5,
+	tokAndNot: 5,
+	'+':       4,
+	'-':       4,
+	'|':       4,
+	'^':       4,
+	tokEqEq:   3,
+	tokGTEq:   3,
+	tokLTEq:   3,
+	'<':       3,
+	'>':       3,
+	tokNotEq:  3,
 }
 
 func (a *Assembler) continueExpr(pri int, ex expr, tok token, err error) (expr, token, error) {
