@@ -178,6 +178,8 @@ func TestParseErrors(t *testing.T) {
 		{"ld b, (123)", "no suitable"},
 		{"xor a,", "unexpected trailing ,"},
 		{"xor missing", "label"},
+		{"ld hl, 6/(4-4)", "zero"},
+		{"ld hl, 6%(4-4)", "zero"},
 	}
 	for _, tc := range testCases {
 		fs := ffs{"a.asm": tc.asm}
@@ -232,6 +234,14 @@ func TestIntExpressions(t *testing.T) {
 		{"!(1==0)", 1},
 		{"!(0==0)", 0},
 		{"-(1+2)", 65536 - 3},
+		{"7&^2", 5},
+		{"42||badness", 42},
+		{"42&&43", 43},
+		{"42||43", 42},
+		{"0&&badness", 0},
+		{"1&&0||3", 3},
+		{"1&&2||3", 2},
+		{"0&&2||3", 3},
 	}
 	for _, tc := range testCases {
 		fs := ffs{

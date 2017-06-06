@@ -224,7 +224,18 @@ func (euo exprUnaryOp) apply(n1 int64) int64 {
 	return 0
 }
 
-func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
+func (ebo exprBinaryOp) apply(asm *Assembler, n1 int64, e2 expr) (int64, error) {
+	var n2 int64
+	if ebo.op != tokAndAnd && ebo.op != tokOrOr {
+		var err error
+		var ok bool
+		n2, ok, err = getIntValue(asm, e2)
+		if err != nil {
+			return 0, err
+		} else if !ok {
+			return 0, asm.scanErrorf("can't compute constant: %s", e2)
+		}
+	}
 	switch ebo.op {
 	case '+':
 		return n1 + n2, nil
@@ -244,6 +255,8 @@ func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 		return n1 % n2, nil
 	case '&':
 		return n1 & n2, nil
+	case tokAndNot:
+		return n1 &^ n2, nil
 	case '|':
 		return n1 | n2, nil
 	case tokEqEq:
@@ -268,6 +281,17 @@ func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 			return 0, fmt.Errorf("shift must be positive")
 		}
 		return n1 << uint64(n2), nil
+	case tokAndAnd, tokOrOr:
+		if n1 != 0 && ebo.op == tokOrOr || n1 == 0 && ebo.op == tokAndAnd {
+			return n1, nil
+		}
+		n2, ok, err := getIntValue(asm, e2)
+		if err != nil {
+			return 0, err
+		} else if !ok {
+			return 0, asm.scanErrorf("can't compute constant: %s", e2)
+		}
+		return n2, nil
 	}
 	log.Fatalf("unknown binary op: %s", scanner.TokenString(ebo.op))
 	return 0, nil
@@ -289,19 +313,12 @@ func getIntValue(asm *Assembler, e expr) (int64, bool, error) {
 		return v.i, true, nil
 	case exprBinaryOp:
 		n1, ok1, err1 := getIntValue(asm, v.e1)
-		n2, ok2, err2 := getIntValue(asm, v.e2)
-		if err1 != nil {
-			return 0, false, err1
+		if err1 != nil || !ok1 {
+			return 0, ok1, err1
 		}
-		if err2 != nil {
-			return 0, false, err2
-		}
-		if !ok1 || !ok2 {
-			return 0, false, nil
-		}
-		n, err := v.apply(n1, n2)
+		n, err := v.apply(asm, n1, v.e2)
 		if err != nil {
-			return 0, false, asm.scanErrorf("error evaluating constant: %v", err)
+			return 0, false, err
 		}
 		return n, true, nil
 	default:
@@ -378,6 +395,8 @@ var opPrecedence = map[rune]int{
 	'<':       3,
 	'>':       3,
 	tokNotEq:  3,
+	tokAndAnd: 2,
+	tokOrOr:   1,
 }
 
 func (a *Assembler) continueExpr(pri int, ex expr, tok token, err error) (expr, token, error) {

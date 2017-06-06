@@ -83,7 +83,7 @@ type token struct {
 }
 
 const (
-	tokLTLT rune = iota - 10
+	tokLTLT rune = -iota - 20
 	tokGTGT
 	tokAndNot
 	tokEqEq
