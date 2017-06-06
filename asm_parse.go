@@ -15,8 +15,9 @@ type exprInt struct {
 	i int64
 }
 
-type exprNeg struct {
-	e expr
+type exprUnaryOp struct {
+	op rune
+	e  expr
 }
 
 type exprBinaryOp struct {
@@ -28,8 +29,8 @@ func (e exprBinaryOp) String() string {
 	return fmt.Sprintf("[%s %c %s]", e.e1, e.op, e.e2)
 }
 
-func (en exprNeg) String() string {
-	return fmt.Sprintf("-%s", en.e)
+func (en exprUnaryOp) String() string {
+	return fmt.Sprintf("%c%s", en.op, en.e)
 }
 
 type exprBracket struct {
@@ -210,6 +211,19 @@ func bool2int(b bool) int64 {
 	return 0
 }
 
+func (euo exprUnaryOp) apply(n1 int64) int64 {
+	switch euo.op {
+	case '!':
+		return bool2int(n1 == 0)
+	case '^':
+		return ^n1
+	case '-':
+		return -n1
+	}
+	log.Fatalf("Unknown unary op %c", euo.op)
+	return 0
+}
+
 func (ebo exprBinaryOp) apply(n1, n2 int64) (int64, error) {
 	switch ebo.op {
 	case '+':
@@ -265,12 +279,12 @@ func getIntValue(asm *Assembler, e expr) (int64, bool, error) {
 		return v.getIntValue(asm)
 	case exprBracket:
 		return getIntValue(asm, v.e)
-	case exprNeg:
+	case exprUnaryOp:
 		n, ok, err := getIntValue(asm, v.e)
 		if !ok || err != nil {
 			return 0, ok, err
 		}
-		return -n, true, nil
+		return v.apply(n), true, nil
 	case exprInt:
 		return v.i, true, nil
 	case exprBinaryOp:
@@ -295,7 +309,7 @@ func getIntValue(asm *Assembler, e expr) (int64, bool, error) {
 	}
 }
 
-func (en exprNeg) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
+func (en exprUnaryOp) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
 	iv, ok, err := getIntValue(asm, en)
 	if err != nil || !ok {
 		return nil, ok, err
@@ -399,9 +413,10 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 				return nil, token{}, a.scanErrorf("unexpected %s", tok)
 			}
 			return nil, tok, nil
-		case '-':
+		case '-', '^', '!':
+			op := tok.t
 			x, tok, err := a.parseExpression(6, false)
-			return a.continueExpr(pri, exprNeg{x}, tok, err)
+			return a.continueExpr(pri, exprUnaryOp{op, x}, tok, err)
 		case '(':
 			ex, tok, err := a.parseExpression(0, false)
 			if err != nil {
