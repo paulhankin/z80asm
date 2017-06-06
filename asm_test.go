@@ -183,6 +183,12 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: b(0x18, 0x01, 42, 0xc9),
 		},
+		{
+			fs: ffs{
+				"a.asm": "\n\n\n\n/* Hello */\n\n\n",
+			},
+			want: []byte{},
+		},
 	}
 	for _, tc := range testcases {
 		testSnippet(t, 0x8000, tc.fs, tc.want)
