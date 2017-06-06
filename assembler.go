@@ -45,7 +45,7 @@ func (a *Assembler) AssembleFile(filename string) error {
 	for pass := 0; pass < 2; pass++ {
 		a.p = pc
 		a.pass = pass
-		if err := a.assembleFile(filename); err != nil {
+		if err := a.assembleFile(filename); pass == 1 && err != nil {
 			return err
 		}
 	}
@@ -68,13 +68,24 @@ func (a *Assembler) assembleFile(filename string) error {
 		a.scanErr = a.scanErrorf("%s", msg)
 	}
 	a.scan_ = &scan
-	return a.assemble()
+	var errs []string
+	for a.canContinue() && len(errs) < 20 {
+		if err := a.assemble(); err != nil {
+			errs = append(errs, err.Error())
+		} else {
+			break
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "\n"))
+	}
+	return nil
 }
 
 func (a *Assembler) scanErrorf(fs string, args ...interface{}) error {
-	header := fmt.Sprintf("%s:%d.%d", a.scan_.Position.Filename, a.scan_.Position.Line, a.scan_.Position.Column)
+	header := fmt.Sprintf("%s:%d.%d: ", a.scan_.Position.Filename, a.scan_.Position.Line, a.scan_.Position.Column)
 	rest := fmt.Sprintf(fs, args...)
-	return errors.New(header + "\t" + rest)
+	return errors.New(header + rest)
 }
 
 type token struct {
@@ -147,7 +158,14 @@ func (t token) String() string {
 	return scanner.TokenString(t.t)
 }
 
+func (a *Assembler) canContinue() bool {
+	return a.scanErr == nil
+}
+
 func (a *Assembler) assemble() error {
+	if a.scanErr != nil {
+		return a.scanErr
+	}
 	for {
 		tok, err := a.nextToken()
 		if err != nil {

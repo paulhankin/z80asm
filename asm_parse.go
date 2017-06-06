@@ -126,10 +126,18 @@ func (ei exprIdent) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error
 			return nil, ok, err
 		}
 		if argType(a) == argTypeRelAddress && ok {
-			// 2 assumes that the length of the instruction is 2 bytes.
-			// That happens to be true for all the z80 instructions
-			// that take a relative offset.
-			r -= int64(asm.p + 2)
+			if asm.pass == 0 {
+				// We may not have the label defined in pass 0.
+				// So we set the relative jump to 0 to make
+				// sure it's in range.
+				// If it's out of range, pass 1 will catch it.
+				r = 0
+			} else {
+				// 2 assumes that the length of the instruction is 2 bytes.
+				// That happens to be true for all the z80 instructions
+				// that take a relative offset.
+				r -= int64(asm.p + 2)
+			}
 		}
 		return serializeIntArg(asm, r, a)
 	}

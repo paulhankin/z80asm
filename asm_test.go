@@ -177,9 +177,45 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: b(0x20, 0xfe),
 		},
+		{
+			fs: ffs{
+				"a.asm": "jr forwards ; db 42; .forwards ret",
+			},
+			want: b(0x18, 0x01, 42, 0xc9),
+		},
 	}
 	for _, tc := range testcases {
 		testSnippet(t, 0x8000, tc.fs, tc.want)
+	}
+}
+
+func TestParseManyErrors(t *testing.T) {
+	fs := ffs{
+		"a.asm": `
+	ld hl, 12(
+	xor b, c
+	jp backwards
+	ld bc, a ; db 256
+	`}
+	desc := "many errors"
+	ram := make([]byte, 65536)
+	asm, err := NewAssembler(ram)
+	if err != nil {
+		t.Fatalf("%q: failed to create assembler: %v", desc, err)
+	}
+	asm.opener = fs.open
+	err = asm.AssembleFile("a.asm")
+	if err == nil {
+		t.Fatalf("%q: assembler succeeded, expected many errors", desc)
+	}
+	lines := strings.Split(err.Error(), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("%q: expected 5 errors, got %d: %v", desc, len(lines), err.Error())
+	}
+	for _, line := range lines {
+		if !strings.Contains(line, "a.asm") {
+			t.Errorf("%q: error line %q does not contain filename", desc, line)
+		}
 	}
 }
 
