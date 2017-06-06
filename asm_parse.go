@@ -401,10 +401,7 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 			return nil, tok, nil
 		case '-':
 			x, tok, err := a.parseExpression(6, false)
-			if err != nil {
-				return nil, token{}, err
-			}
-			return a.continueExpr(pri, exprNeg{x}, tok, a.scanErr)
+			return a.continueExpr(pri, exprNeg{x}, tok, err)
 		case '(':
 			ex, tok, err := a.parseExpression(0, false)
 			if err != nil {
@@ -447,7 +444,7 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 	var r []expr
 	comma := false
-	for a.scanErr == nil {
+	for {
 		e, tok, err := a.parseExpression(0, true)
 		if err != nil {
 			return nil, err
@@ -469,5 +466,4 @@ func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 			return nil, a.scanErrorf("unexpected %s", tok)
 		}
 	}
-	return nil, a.scanErr
 }
