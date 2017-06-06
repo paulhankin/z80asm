@@ -204,7 +204,7 @@ func argRange(a arg) (min, max, size int64) {
 func serializeIntArg(asm *Assembler, i int64, a arg) ([]byte, bool, error) {
 	min, max, size := argRange(a)
 	if i < min || i > max {
-		return nil, false, asm.scanErrorf("%x is out of range", i)
+		return nil, false, asm.scanErrorf("%d is not in the range %d...%d", i, min, max)
 	}
 	ui := uint16(i)
 	switch size {

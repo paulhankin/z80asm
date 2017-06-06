@@ -143,6 +143,12 @@ func TestAsmSnippets(t *testing.T) {
 		},
 		{
 			fs: ffs{
+				"a.asm": "ds `hello\\n`",
+			},
+			want: []byte("hello\\n"),
+		},
+		{
+			fs: ffs{
 				"a.asm": `rrca ; ret ; di`,
 			},
 			want: b(0x0f, 0xc9, 0xf3),
@@ -186,16 +192,17 @@ func TestParseErrors(t *testing.T) {
 		{"ld hl, (42", ")"},
 		{"ld a, (1+2*3", ")"},
 		{"ld a, 2+3+", "EOF"},
-		{"ld a, 1 ld b, 2", "unexpected Ident"},
+		{"ld a, 1 ld b, 2", "unexpected identifier \"ld\""},
 		{"ld b, (123)", "no suitable"},
 		{"xor a,", "unexpected trailing ,"},
 		{"xor missing", "label"},
 		{"ld hl, 6/(4-4)", "zero"},
 		{"ld hl, 6%(4-4)", "zero"},
+		{"db 256", "not in the range"},
+		{"dw 65536", "not in the range"},
 	}
 	for _, tc := range testCases {
-		fs := ffs{"a.asm": tc.asm}
-		testFailureSnippet(t, fs, tc.wantErr)
+		testFailureSnippet(t, ffs{"a.asm": tc.asm}, tc.wantErr)
 	}
 }
 

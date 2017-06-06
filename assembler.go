@@ -139,7 +139,7 @@ func (t token) String() string {
 	case scanner.Int:
 		return t.s
 	case scanner.Ident:
-		return fmt.Sprintf("Ident:%s", t.s)
+		return fmt.Sprintf(`identifier "%s"`, t.s)
 	}
 	if s, ok := tokStrings[t.t]; ok {
 		return s
