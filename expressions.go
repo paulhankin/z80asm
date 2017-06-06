@@ -233,6 +233,21 @@ type exprBracket struct {
 	e expr
 }
 
+func indRegGetReg(a arg) arg {
+	switch a {
+	case indBC:
+		return regBC
+	case indHL:
+		return regHL
+	case indDE:
+		return regDE
+	case indSP:
+		return regSP
+	}
+	log.Fatalf("passed %s to indRegGetReg", a)
+	return void
+}
+
 func (eb exprBracket) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
 	switch argType(a) {
 	case argTypeInt:
@@ -331,4 +346,12 @@ func (ec exprChar) String() string {
 
 func (ec exprChar) stringPri(int) string {
 	return ec.String()
+}
+
+func (ec exprChar) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
+	switch argType(a) {
+	case argTypeInt:
+		return serializeIntArg(asm, int64(ec.r), a)
+	}
+	return nil, false, nil
 }

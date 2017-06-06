@@ -7,29 +7,6 @@ import (
 	"text/scanner"
 )
 
-func indRegGetReg(a arg) arg {
-	switch a {
-	case indBC:
-		return regBC
-	case indHL:
-		return regHL
-	case indDE:
-		return regDE
-	case indSP:
-		return regSP
-	}
-	log.Fatalf("passed %s to indRegGetReg", a)
-	return void
-}
-
-func (ec exprChar) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
-	switch argType(a) {
-	case argTypeInt:
-		return serializeIntArg(asm, int64(ec.r), a)
-	}
-	return nil, false, nil
-}
-
 var argVals = map[arg]int64{
 	val00h: 0,
 	val01h: 1,
