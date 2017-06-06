@@ -269,6 +269,11 @@ func TestParseManyErrors(t *testing.T) {
 			src:       "ld hl, 1+2);ld bc, (a)",
 			wantCount: 2,
 		},
+		{
+			desc:      "type error, two errors",
+			src:       "ld hl, \"fred\";ld bc, (a)",
+			wantCount: 2,
+		},
 	}
 	for _, tc := range testCases {
 		testMultipleErrors(t, tc.desc, tc.src, tc.wantCount)
