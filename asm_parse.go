@@ -100,7 +100,7 @@ type exprIdent struct {
 }
 
 func (ei exprIdent) String() string {
-	return fmt.Sprintf("id:%s", ei.id)
+	return fmt.Sprintf("%s", ei.id)
 }
 
 func (ei exprIdent) getIntValue(asm *Assembler) (int64, bool, error) {

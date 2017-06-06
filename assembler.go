@@ -14,13 +14,15 @@ import (
 // An Assembler can assemble Z80 instructions
 // into RAM.
 type Assembler struct {
-	opener  func(string) (io.ReadCloser, error)
-	pass    int
-	p       uint16
-	l       map[string]uint16
-	m       []uint8
-	scan_   *scanner.Scanner
-	scanErr error
+	opener      func(string) (io.ReadCloser, error)
+	pass        int
+	p           uint16
+	l           map[string]uint16
+	labelAssign map[string]string
+	m           []uint8
+	scan_       *scanner.Scanner
+	scanErr     error
+	lastToken   token
 }
 
 func openFile(filename string) (io.ReadCloser, error) {
@@ -30,10 +32,11 @@ func openFile(filename string) (io.ReadCloser, error) {
 
 func NewAssembler(ram []uint8) (*Assembler, error) {
 	return &Assembler{
-		opener: openFile,
-		p:      0x8000,
-		l:      make(map[string]uint16),
-		m:      ram,
+		opener:      openFile,
+		p:           0x8000,
+		l:           make(map[string]uint16),
+		labelAssign: make(map[string]string),
+		m:           ram,
 	}, nil
 }
 
@@ -50,6 +53,10 @@ func (a *Assembler) AssembleFile(filename string) error {
 		}
 	}
 	return nil
+}
+
+func endStatement(t token) bool {
+	return t.t == ';' || t.t == scanner.EOF || t.t == '\n'
 }
 
 func (a *Assembler) assembleFile(filename string) error {
@@ -72,6 +79,9 @@ func (a *Assembler) assembleFile(filename string) error {
 	for a.canContinue() && len(errs) < 20 {
 		if err := a.assemble(); err != nil {
 			errs = append(errs, err.Error())
+			for a.canContinue() && !endStatement(a.lastToken) {
+				a.nextToken()
+			}
 		} else {
 			break
 		}
@@ -82,10 +92,12 @@ func (a *Assembler) assembleFile(filename string) error {
 	return nil
 }
 
+func (a *Assembler) location() string {
+	return fmt.Sprintf("%s:%d.%d", a.scan_.Position.Filename, a.scan_.Position.Line, a.scan_.Position.Column)
+}
+
 func (a *Assembler) scanErrorf(fs string, args ...interface{}) error {
-	header := fmt.Sprintf("%s:%d.%d: ", a.scan_.Position.Filename, a.scan_.Position.Line, a.scan_.Position.Column)
-	rest := fmt.Sprintf(fs, args...)
-	return errors.New(header + rest)
+	return errors.New(a.location() + ": " + fmt.Sprintf(fs, args...))
 }
 
 type token struct {
@@ -141,8 +153,8 @@ func (a *Assembler) nextToken() (token, error) {
 			return token{tok, ""}, a.scanErr
 		}
 	}
-
-	return token{t, a.scan_.TokenText()}, a.scanErr
+	a.lastToken = token{t, a.scan_.TokenText()}
+	return a.lastToken, a.scanErr
 }
 
 func (t token) String() string {
@@ -838,7 +850,11 @@ func (ca commandAssembler) W(a *Assembler) error {
 		}
 	}
 	if !found {
-		return a.scanErrorf("no suitable form of %s found for args: %v", ca.cmd, vals)
+		vs := []string{}
+		for _, v := range vals {
+			vs = append(vs, fmt.Sprintf("%s", v))
+		}
+		return a.scanErrorf("no suitable form of %s found that matches %s %s", ca.cmd, ca.cmd, strings.Join(vs, ", "))
 	}
 
 	return nil
@@ -890,10 +906,17 @@ func (a *Assembler) assembleCommand(cmdOrig string) error {
 }
 
 func (a *Assembler) setLabel(label string) error {
-	if _, ok := a.l[label]; a.pass == 0 && ok {
-		return a.scanErrorf("label %q already set", label)
+	if a.pass == 1 {
+		fass := a.labelAssign[label]
+		if a.location() != fass {
+			return a.scanErrorf("Label %q redefined. First defined at %s", label, fass)
+		}
+		return nil
 	}
 	a.l[label] = a.p
+	if a.pass == 0 && a.labelAssign[label] == "" {
+		a.labelAssign[label] = a.location()
+	}
 	return nil
 }
 

@@ -195,15 +195,8 @@ func TestAsmSnippets(t *testing.T) {
 	}
 }
 
-func TestParseManyErrors(t *testing.T) {
-	fs := ffs{
-		"a.asm": `
-	ld hl, 12(
-	xor b, c
-	jp backwards
-	ld bc, a ; db 256
-	`}
-	desc := "many errors"
+func testMultipleErrors(t *testing.T, desc, src string, wantCount int) {
+	fs := ffs{"a.asm": src}
 	ram := make([]byte, 65536)
 	asm, err := NewAssembler(ram)
 	if err != nil {
@@ -212,16 +205,73 @@ func TestParseManyErrors(t *testing.T) {
 	asm.opener = fs.open
 	err = asm.AssembleFile("a.asm")
 	if err == nil {
-		t.Fatalf("%q: assembler succeeded, expected many errors", desc)
+		t.Errorf("%q: assembler succeeded, expected many errors", desc)
+		return
 	}
 	lines := strings.Split(err.Error(), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("%q: expected 5 errors, got %d: %v", desc, len(lines), err.Error())
+	if len(lines) != wantCount {
+		t.Errorf("%q: expected %d errors, got %d: %v", desc, wantCount, len(lines), err.Error())
+		return
 	}
 	for _, line := range lines {
 		if !strings.Contains(line, "a.asm") {
 			t.Errorf("%q: error line %q does not contain filename", desc, line)
 		}
+	}
+
+}
+
+func TestParseManyErrors(t *testing.T) {
+	testCases := []struct {
+		desc, src string
+		wantCount int
+	}{
+		{
+			desc: "lots of errors",
+			src: `
+				ld hl, 12(
+				xor b, c
+				jp backwards
+				ld bc, a ; db 256
+			`,
+			wantCount: 5,
+		},
+		{
+			desc: "just one error!",
+			src: `
+				ld hl, )1+2+3
+				ld bc, 42
+			`,
+			wantCount: 1,
+		},
+		{
+			desc:      "just one error, one line",
+			src:       "ld hl, )1+2+3 ; ld bc, 42",
+			wantCount: 1,
+		},
+		{
+			desc:      "one line, two errors",
+			src:       "ld hl, )1+2+3 ; ld bc, (a)",
+			wantCount: 2,
+		},
+		{
+			desc:      "two lines, two errors",
+			src:       "ld hl, )1+2+3\nld bc, (a)",
+			wantCount: 2,
+		},
+		{
+			desc:      "one line, two errors",
+			src:       "ld bc, (a);ld bc, (a)",
+			wantCount: 2,
+		},
+		{
+			desc:      "one line, two errors",
+			src:       "ld hl, 1+2);ld bc, (a)",
+			wantCount: 2,
+		},
+	}
+	for _, tc := range testCases {
+		testMultipleErrors(t, tc.desc, tc.src, tc.wantCount)
 	}
 }
 
@@ -233,6 +283,7 @@ func TestParseErrors(t *testing.T) {
 		{"xor a, b", "no suitable"},
 		{"ld hl, (42", ")"},
 		{"ld a, (1+2*3", ")"},
+		{"ld a, )1+2*3", "unexpected token \")\""},
 		{"ld a, 2+3+", "EOF"},
 		{"ld a, 1 ld b, 2", "unexpected identifier \"ld\""},
 		{"ld b, (123)", "no suitable"},
@@ -242,6 +293,7 @@ func TestParseErrors(t *testing.T) {
 		{"ld hl, 6%(4-4)", "zero"},
 		{"db 256", "not in the range"},
 		{"dw 65536", "not in the range"},
+		{".label ld hl, 42 ; .label ld bc, 42", "Label \"label\" redefined"},
 	}
 	for _, tc := range testCases {
 		testFailureSnippet(t, ffs{"a.asm": tc.asm}, tc.wantErr)
