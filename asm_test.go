@@ -177,6 +177,7 @@ func TestParseErrors(t *testing.T) {
 		{"ld a, 1 ld b, 2", "unexpected Ident"},
 		{"ld b, (123)", "no suitable"},
 		{"xor a,", "unexpected trailing ,"},
+		{"xor missing", "label"},
 	}
 	for _, tc := range testCases {
 		fs := ffs{"a.asm": tc.asm}
