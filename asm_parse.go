@@ -15,6 +15,10 @@ type exprInt struct {
 	i int64
 }
 
+type exprString struct {
+	s string
+}
+
 type exprUnaryOp struct {
 	op rune
 	e  expr
@@ -23,6 +27,10 @@ type exprUnaryOp struct {
 type exprBinaryOp struct {
 	op     rune
 	e1, e2 expr
+}
+
+func (e exprString) String() string {
+	return fmt.Sprintf("%q", e.s)
 }
 
 func (e exprBinaryOp) String() string {
@@ -54,6 +62,13 @@ func indRegGetReg(a arg) arg {
 	}
 	log.Fatalf("passed %s to indRegGetReg", a)
 	return void
+}
+
+func (es exprString) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
+	if a != argstring {
+		return nil, false, nil
+	}
+	return []byte(es.s), true, nil
 }
 
 func (eb exprBracket) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
@@ -454,6 +469,13 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 			}
 			nt, err := a.nextToken()
 			return a.continueExpr(pri, exprInt{i}, nt, err)
+		case scanner.String:
+			r, err := strconv.Unquote(tok.s)
+			if err != nil {
+				return nil, token{}, a.scanErrorf("bad string %q: %v", tok.s, err)
+			}
+			nt, err := a.nextToken()
+			return a.continueExpr(pri, exprString{r}, nt, err)
 		case scanner.Char:
 			r, _, _, err := strconv.UnquoteChar(tok.s[1:], '\'')
 			if err != nil {

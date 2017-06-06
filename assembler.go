@@ -367,6 +367,7 @@ const (
 	val28h
 	val30h
 	val38h
+	argstring // used for directives (eg: ds), not for any z80 instruction
 )
 
 var argMap = map[arg]string{
@@ -428,6 +429,7 @@ var argMap = map[arg]string{
 	val28h:    "0x28",
 	val30h:    "0x30",
 	val38h:    "0x38",
+	argstring: "...",
 }
 
 func (o arg) String() string {
@@ -697,6 +699,7 @@ var commandTable = map[string]instrAssembler{
 	"org": cmdFunc(commandOrg),
 	"db":  cmdData(const8),
 	"dw":  cmdData(const16),
+	"ds":  cmdData(argstring),
 }
 
 type commandAssembler struct {
@@ -719,6 +722,7 @@ const (
 	argTypeInt
 	argTypePort
 	argTypePortC
+	argTypeString
 	argTypeUnknown // oops
 )
 
@@ -748,6 +752,8 @@ func argType(a arg) argumentType {
 		return argTypeCC
 	case val00h, val01h, val02h, val03h, val04h, val05h, val06h, val07h, val08h, val10h, val18h, val20h, val28h, val30h, val38h:
 		return argTypeFixed
+	case argstring:
+		return argTypeString
 	}
 	return argTypeUnknown
 }
