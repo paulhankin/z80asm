@@ -199,18 +199,20 @@ func (a *Assembler) GetLabel(l string) (uint16, bool) {
 	return v, ok
 }
 
-func commandDB(a *Assembler) error {
+type cmdData arg
+
+func (n cmdData) W(a *Assembler) error {
 	args, err := a.parseArgs(true)
 	if err != nil {
 		return err
 	}
-	for _, arg := range args {
-		bs, ok, err := arg.evalAs(a, const8, false)
+	for _, arg0 := range args {
+		bs, ok, err := arg0.evalAs(a, arg(n), false)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return a.scanErrorf("bad 8-bit data value: %s", arg)
+			return a.scanErrorf("bad data value: %s", arg0)
 		}
 		if err := a.writeBytes(bs); err != nil {
 			return err
@@ -693,8 +695,8 @@ func (cf cmdFunc) W(a *Assembler) error {
 
 var commandTable = map[string]instrAssembler{
 	"org": cmdFunc(commandOrg),
-	"db":  cmdFunc(commandDB),
-	//"ds":  commandDS,
+	"db":  cmdData(const8),
+	"dw":  cmdData(const16),
 }
 
 type commandAssembler struct {

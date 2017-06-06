@@ -131,6 +131,12 @@ func TestAsmSnippets(t *testing.T) {
 		},
 		{
 			fs: ffs{
+				"a.asm": `dw 1, 2, 256`,
+			},
+			want: b(1, 0, 2, 0, 0, 1),
+		},
+		{
+			fs: ffs{
 				"a.asm": `rrca ; ret ; di`,
 			},
 			want: b(0x0f, 0xc9, 0xf3),
