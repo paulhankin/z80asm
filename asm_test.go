@@ -189,6 +189,12 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: []byte{},
 		},
+		{
+			fs: ffs{
+				"a.asm": "add ix, bc; ld ix, (1049); ld h, (ix+5); ld h, (ix-1)",
+			},
+			want: []byte{0xdd, 0x09, 0xdd, 0x2a, 25, 4, 0xdd, 0x66, 5, 0xdd, 0x66, 256 - 1},
+		},
 	}
 	for _, tc := range testcases {
 		testSnippet(t, 0x8000, tc.fs, tc.want)
@@ -278,6 +284,11 @@ func TestParseManyErrors(t *testing.T) {
 			desc:      "two many commas, times two",
 			src:       "ld hl, 1, a; ld bc, hl, de",
 			wantCount: 2,
+		},
+		{
+			desc:      "ix/iy+n out of range",
+			src:       "ld a, (ix+128); ld a, (ix-129); ld a, (iy+128) ; ld a, (iy-129)",
+			wantCount: 4,
 		},
 	}
 	for _, tc := range testCases {

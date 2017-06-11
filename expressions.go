@@ -243,6 +243,10 @@ func indRegGetReg(a arg) arg {
 		return regDE
 	case indSP:
 		return regSP
+	case indIXplus:
+		return regIX
+	case indIYplus:
+		return regIY
 	}
 	log.Fatalf("passed %s to indRegGetReg", a)
 	return void
@@ -261,7 +265,28 @@ func (eb exprBracket) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, err
 	case argTypeIndAddress:
 		return eb.e.evalAs(asm, addr16, false)
 	case argTypeIndRegPlusInt:
-		/* TODO */
+		binop, ok := eb.e.(exprBinaryOp)
+		if !ok {
+			return nil, false, nil
+		}
+		_, ok, err := binop.e1.evalAs(asm, indRegGetReg(a), false)
+		if !ok || err != nil {
+			return nil, ok, err
+		}
+		if binop.op != '+' && binop.op != '-' {
+			return nil, false, asm.scanErrorf("expected %s+n or %s-n, got %c", a, binop.op)
+		}
+		n, ok, err := getIntValue(asm, binop.e2)
+		if !ok {
+			return nil, false, asm.scanErrorf("(%s+n) right hand side must be int", a)
+		}
+		if binop.op == '-' {
+			n = -n
+		}
+		if n < -128 || n > 127 {
+			return nil, false, asm.scanErrorf("(%s%+d) out of range -128 to 127", a, n)
+		}
+		return serializeIntArg(asm, n, const8)
 	case argTypePort:
 		return eb.e.evalAs(asm, const8, false)
 	case argTypePortC:

@@ -329,6 +329,24 @@ func (ca commandAssembler) W(a *Assembler) error {
 	return nil
 }
 
+func joinCommands(cmdss ...map[string]args) map[string]args {
+	r := map[string]args{}
+	for _, cmds := range cmdss {
+		for k, argss := range cmds {
+			if r[k] == nil {
+				r[k] = args{}
+			}
+			for a, bs := range argss {
+				if _, ok := r[k][a]; ok {
+					panic(fmt.Sprintf("duplicate args %s found for %s", a, k))
+				}
+				r[k][a] = bs
+			}
+		}
+	}
+	return r
+}
+
 func init() {
 	for c0, bs := range commands0arg {
 		if _, ok := commandTable[c0]; ok {
@@ -336,7 +354,7 @@ func init() {
 		}
 		commandTable[c0] = commandAssembler{c0, map[arg][]byte{void: bs}}
 	}
-	for c0, os := range commandsArgs {
+	for c0, os := range joinCommands(commandsArgs, ixCommands, iyCommands) {
 		if _, ok := commandTable[c0]; ok {
 			panic("duplicate command: " + c0)
 		}
@@ -410,36 +428,4 @@ func getByte(prefix, bs []byte) (byte, bool) {
 		return 0, false
 	}
 	return bs[n-1], true
-}
-
-// GetPlane returns a map of instructions with the given prefix.
-func GetPlane(prefix []byte) []string {
-	result := make([]string, 256)
-	collisions := make([][]string, 256)
-	for cmd, asm := range commandTable {
-		switch v := asm.(type) {
-		case commandAssembler:
-			for o, bs := range v.args {
-				if b, ok := getByte(prefix, bs); ok {
-					s := fmt.Sprintf("%s %s", cmd, o)
-					if o == void {
-						s = cmd
-					}
-					result[b] = s
-					collisions[b] = append(collisions[b], result[b])
-				}
-			}
-		}
-	}
-	failed := false
-	for i, c := range collisions {
-		if len(c) > 1 {
-			fmt.Printf("collisions at 0x%02x: %s\n", i, strings.Join(c, "; "))
-			failed = true
-		}
-	}
-	if failed {
-		log.Fatalf("found collisions!")
-	}
-	return result
 }

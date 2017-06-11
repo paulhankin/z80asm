@@ -96,6 +96,43 @@ var (
 		"set 6, b", "set 6, c", "set 6, d", "set 6, e", "set 6, h", "set 6, l", "set 6, (hl)", "set 6, a",
 		"set 7, b", "set 7, c", "set 7, d", "set 7, e", "set 7, h", "set 7, l", "set 7, (hl)", "set 7, a",
 	}
+
+	ixPlaneTable = []string{
+		"", "", "", "", "", "", "", "", "", "add ix, bc", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "add ix, de", "", "", "", "", "", "",
+		"", "ld ix, **", "ld (**), ix", "inc ix", "?inc ixh", "?dec ixh", "?ld ixh, *", "", "", "add ix, ix", "ld ix, (**)", "dec ix", "?inc ixl", "?dec ixl", "?ld ixl, *", "",
+		"", "", "", "", "inc (ix+*)", "dec (ix+*)", "ld (ix+*), *", "", "", "add ix, sp", "", "", "", "", "", "",
+		"", "", "", "", "?ld b, ixh", "?ld b, ixl", "ld b, (ix+*)", "", "", "", "", "", "?ld c, ixh", "?ld c, ixl", "ld c, (ix+*)", "",
+		"", "", "", "", "?ld d, ixh", "?ld d, ixl", "ld d, (ix+*)", "", "", "", "", "", "?ld e, ixh", "?ld e, ixl", "ld e, (ix+*)", "",
+		"?ld ixh, b", "?ld ixh, c", "?ld ixh, d", "?ld ixh, e", "?ld ixh, ixh", "?ld ixh, ixl", "ld h, (ix+*)", "?ld ixh, a", "?ld ixl, b", "?ld ixl, c", "?ld ixl, d", "?ld ixl, e", "?ld ixl, ixh", "?ld ixl, ixl", "ld l, (ix+*)", "?ld ixl, a",
+		"ld (ix+*), b", "ld (ix+*), c", "ld (ix+*), d", "ld (ix+*), e", "ld (ix+*), h", "ld (ix+*), l", "", "ld (ix+*), a", "", "", "", "", "?ld a, ixh", "?ld a, ixl", "ld a, (ix+*)", "",
+		"", "", "", "", "?add a, ixh", "?add a, ixl", "add a, (ix+*)", "", "", "", "", "", "?adc a, ixh", "?adc a, ixl", "adc a, (ix+*)", "",
+		"", "", "", "", "?sub ixh", "?sub ixl", "sub (ix+*)", "", "", "", "", "", "?sbc a, ixh", "?sbc a, ixl", "sbc a, (ix+*)", "",
+		"", "", "", "", "?and ixh", "?and ixl", "and (ix+*)", "", "", "", "", "", "?xor ixh", "?xor ixl", "xor (ix+*)", "",
+		"", "", "", "", "?or ixh", "?or ixl", "or (ix+*)", "", "", "", "", "", "?cp ixh", "?cp ixl", "cp (ix+*)", "",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", "pop ix", "", "ex (sp), ix", "", "push ix", "", "", "", "jp (ix)", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "ld sp, ix", "", "", "", "", "", "",
+	}
+	iyPlaneTable = []string{
+		"", "", "", "", "", "", "", "", "", "add iy, bc", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "add iy, de", "", "", "", "", "", "",
+		"", "ld iy, **", "ld (**), iy", "inc iy", "?inc iyh", "?dec iyh", "?ld iyh, *", "", "", "add iy, iy", "ld iy, (**)", "dec iy", "?inc iyl", "?dec iyl", "?ld iyl, *", "",
+		"", "", "", "", "inc (iy+*)", "dec (iy+*)", "ld (iy+*), *", "", "", "add iy, sp", "", "", "", "", "", "",
+		"", "", "", "", "?ld b, iyh", "?ld b, iyl", "ld b, (iy+*)", "", "", "", "", "", "?ld c, iyh", "?ld c, iyl", "ld c, (iy+*)", "",
+		"", "", "", "", "?ld d, iyh", "?ld d, iyl", "ld d, (iy+*)", "", "", "", "", "", "?ld e, iyh", "?ld e, iyl", "ld e, (iy+*)", "",
+		"?ld iyh, b", "?ld iyh, c", "?ld iyh, d", "?ld iyh, e", "?ld iyh, iyh", "?ld iyh, iyl", "ld h, (iy+*)", "?ld iyh, a", "?ld iyl, b", "?ld iyl, c", "?ld iyl, d", "?ld iyl, e", "?ld iyl, iyh", "?ld iyl, iyl", "ld l, (iy+*)", "?ld iyl, a",
+		"ld (iy+*), b", "ld (iy+*), c", "ld (iy+*), d", "ld (iy+*), e", "ld (iy+*), h", "ld (iy+*), l", "", "ld (iy+*), a", "", "", "", "", "?ld a, iyh", "?ld a, iyl", "ld a, (iy+*)", "",
+		"", "", "", "", "?add a, iyh", "?add a, iyl", "add a, (iy+*)", "", "", "", "", "", "?adc a, iyh", "?adc a, iyl", "adc a, (iy+*)", "",
+		"", "", "", "", "?sub iyh", "?sub iyl", "sub (iy+*)", "", "", "", "", "", "?sbc a, iyh", "?sbc a, iyl", "sbc a, (iy+*)", "",
+		"", "", "", "", "?and iyh", "?and iyl", "and (iy+*)", "", "", "", "", "", "?xor iyh", "?xor iyl", "xor (iy+*)", "",
+		"", "", "", "", "?or iyh", "?or iyl", "or (iy+*)", "", "", "", "", "", "?cp iyh", "?cp iyl", "cp (iy+*)", "",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", "pop iy", "", "ex (sp), iy", "", "push iy", "", "", "", "jp (iy)", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "ld sp, iy", "", "", "", "", "", "",
+	}
 )
 
 var planeTestTables = []struct {
@@ -115,6 +152,14 @@ var planeTestTables = []struct {
 	{
 		prefix: []byte{0xcb},
 		table:  bitPlaneTable,
+	},
+	{
+		prefix: []byte{0xdd},
+		table:  ixPlaneTable,
+	},
+	{
+		prefix: []byte{0xfd},
+		table:  iyPlaneTable,
 	},
 }
 

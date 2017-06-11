@@ -3,6 +3,7 @@ package z80asm
 import (
 	"fmt"
 	"log"
+	"strings"
 )
 
 func b(x ...byte) []byte {
@@ -40,7 +41,7 @@ func argType(a arg) argumentType {
 		return argTypeVoid
 	case regA, regB, regC, regD, regE, regH, regL, regI, regR, regAF, regAF_, regBC, regDE, regHL, regSP, regIX, regIXL, regIXH, regIY, regIYH, regIYL:
 		return argTypeReg
-	case indBC, indDE, indHL, indSP:
+	case indBC, indDE, indHL, indSP, indIX, indIY:
 		return argTypeIndReg
 	case indIXplus, indIYplus:
 		return argTypeIndRegPlusInt
@@ -102,6 +103,8 @@ const (
 	indBC
 	indDE
 	indHL
+	indIX
+	indIY
 	indIXplus
 	indIYplus
 	indSP
@@ -164,6 +167,8 @@ var argMap = map[arg]string{
 	indBC:     "(bc)",
 	indDE:     "(de)",
 	indHL:     "(hl)",
+	indIX:     "(ix)",
+	indIY:     "(iy)",
 	indIXplus: "(ix+*)",
 	indIYplus: "(iy+*)",
 	indSP:     "(sp)",
@@ -528,4 +533,99 @@ var commandsArgs = map[string]args{
 		val01h: b(0xed, 0x56),
 		val02h: b(0xed, 0x5e),
 	},
+}
+
+var (
+	ixMap = map[arg]arg{
+		regHL: regIX,
+		indHL: indIXplus,
+	}
+
+	iyMap = map[arg]arg{
+		regHL: regIY,
+		indHL: indIYplus,
+	}
+
+	ixyExcludes = map[string]map[arg]bool{
+		"ex": map[arg]bool{arg2(regDE, regHL): true},
+		"jp": map[arg]bool{indHL: true},
+	}
+
+	ixCommands = joinCommands(
+		replaceCommands(commandsArgs, ixMap, 0xdd, ixyExcludes),
+		map[string]args{
+			"jp": map[arg][]byte{
+				indIX: []byte{0xdd, 0xe9},
+			},
+		})
+	iyCommands = joinCommands(
+		replaceCommands(commandsArgs, iyMap, 0xfd, ixyExcludes),
+		map[string]args{
+			"jp": map[arg][]byte{
+				indIY: []byte{0xfd, 0xe9},
+			},
+		})
+)
+
+func doRename(a arg, rename map[arg]arg) arg {
+	a0, a1 := a/1024, a%1024
+	if rename[a0] != 0 {
+		a0 = rename[a0]
+	}
+	if rename[a1] != 0 {
+		a1 = rename[a1]
+	}
+	return a0*1024 + a1
+}
+
+func replaceCommands(cmds map[string]args, rename map[arg]arg, prefix byte, exclude map[string]map[arg]bool) map[string]args {
+	result := map[string]args{}
+	for k, variants := range cmds {
+		for as, bs := range variants {
+			if exclude[k][as] {
+				continue
+			}
+			rnas := doRename(as, rename)
+			if rnas == as {
+				continue
+			}
+			if result[k] == nil {
+				result[k] = map[arg][]byte{}
+			}
+			result[k][rnas] = append([]byte{prefix}, bs...)
+		}
+	}
+	return result
+}
+
+// GetPlane returns a map of instructions with the given prefix.
+func GetPlane(prefix []byte) []string {
+	result := make([]string, 256)
+	collisions := make([][]string, 256)
+	for cmd, asm := range commandTable {
+		switch v := asm.(type) {
+		case commandAssembler:
+			for o, bs := range v.args {
+				if b, ok := getByte(prefix, bs); ok {
+					s := fmt.Sprintf("%s %s", cmd, o)
+					if o == void {
+						s = cmd
+					}
+					result[b] = s
+					collisions[b] = append(collisions[b], result[b])
+				}
+			}
+		}
+	}
+	failed := false
+	for i, c := range collisions {
+		if len(c) > 1 {
+			fmt.Printf("collisions at 0x%02x: %s\n", i, strings.Join(c, "; "))
+			failed = true
+		}
+	}
+	if failed {
+		log.Fatalf("found collisions!")
+	}
+	return result
 }
