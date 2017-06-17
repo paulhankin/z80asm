@@ -69,7 +69,7 @@ var (
 		"rr b", "rr c", "rr d", "rr e", "rr h", "rr l", "rr (hl)", "rr a",
 		"sla b", "sla c", "sla d", "sla e", "sla h", "sla l", "sla (hl)", "sla a",
 		"sra b", "sra c", "sra d", "sra e", "sra h", "sra l", "sra (hl)", "sra a",
-		"sll b", "sll c", "sll d", "sll e", "sll h", "sll l", "sll (hl)", "sll a",
+		"?sll b", "?sll c", "?sll d", "?sll e", "?sll h", "?sll l", "?sll (hl)", "?sll a",
 		"srl b", "srl c", "srl d", "srl e", "srl h", "srl l", "srl (hl)", "srl a",
 		"bit 0, b", "bit 0, c", "bit 0, d", "bit 0, e", "bit 0, h", "bit 0, l", "bit 0, (hl)", "bit 0, a",
 		"bit 1, b", "bit 1, c", "bit 1, d", "bit 1, e", "bit 1, h", "bit 1, l", "bit 1, (hl)", "bit 1, a",

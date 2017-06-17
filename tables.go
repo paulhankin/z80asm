@@ -336,8 +336,8 @@ var commandsArgs = map[string]args{
 	"rr":   stdOpts(0, 0x18, 0xcb),
 	"sla":  stdOpts(0, 0x20, 0xcb),
 	"sra":  stdOpts(0, 0x28, 0xcb),
-	"sll":  stdOpts(0, 0x30, 0xcb),
-	"srl":  stdOpts(0, 0x38, 0xcb),
+	//"sll":  stdOpts(0, 0x30, 0xcb),
+	"srl": stdOpts(0, 0x38, 0xcb),
 	"ld": joinOpts(
 		args{
 			arg2(regBC, const16): b(0x01),
