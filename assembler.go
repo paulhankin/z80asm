@@ -310,10 +310,21 @@ func (ca commandAssembler) W(a *Assembler) error {
 				log.Fatalf("more than one variant of %s possible: args %#v, found alt variant %s", ca.cmd, vals, argVariant)
 			}
 			found = true
-			if err := a.writeBytes(bs); err != nil {
+			// Longer instructions (bit operations on ix or iy)
+			// interleave the fixed part of the instruction with
+			// the variable part.
+			// For example: sla (ix+4), * -> dd cb 04 26
+			n := len(bs)
+			if n > 2 {
+				n = 2
+			}
+			if err := a.writeBytes(bs[:n]); err != nil {
 				return err
 			}
 			if err := a.writeBytes(argData); err != nil {
+				return err
+			}
+			if err := a.writeBytes(bs[n:]); err != nil {
 				return err
 			}
 		}

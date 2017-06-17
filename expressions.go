@@ -265,28 +265,34 @@ func (eb exprBracket) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, err
 	case argTypeIndAddress:
 		return eb.e.evalAs(asm, addr16, false)
 	case argTypeIndRegPlusInt:
-		binop, ok := eb.e.(exprBinaryOp)
-		if !ok {
-			return nil, false, nil
+		switch ex := eb.e.(type) {
+		case exprIdent:
+			_, ok, err := ex.evalAs(asm, indRegGetReg(a), false)
+			if !ok || err != nil {
+				return nil, ok, err
+			}
+			return []byte{0}, true, nil
+		case exprBinaryOp:
+			_, ok, err := ex.e1.evalAs(asm, indRegGetReg(a), false)
+			if !ok || err != nil {
+				return nil, ok, err
+			}
+			if ex.op != '+' && ex.op != '-' {
+				return nil, false, asm.scanErrorf("expected %s+n or %s-n, got %c", a, ex.op)
+			}
+			n, ok, err := getIntValue(asm, ex.e2)
+			if !ok {
+				return nil, false, asm.scanErrorf("(%s+n) right hand side must be int", a)
+			}
+			if ex.op == '-' {
+				n = -n
+			}
+			if n < -128 || n > 127 {
+				return nil, false, asm.scanErrorf("(%s%+d) out of range -128 to 127", a, n)
+			}
+			return serializeIntArg(asm, n, const8)
 		}
-		_, ok, err := binop.e1.evalAs(asm, indRegGetReg(a), false)
-		if !ok || err != nil {
-			return nil, ok, err
-		}
-		if binop.op != '+' && binop.op != '-' {
-			return nil, false, asm.scanErrorf("expected %s+n or %s-n, got %c", a, binop.op)
-		}
-		n, ok, err := getIntValue(asm, binop.e2)
-		if !ok {
-			return nil, false, asm.scanErrorf("(%s+n) right hand side must be int", a)
-		}
-		if binop.op == '-' {
-			n = -n
-		}
-		if n < -128 || n > 127 {
-			return nil, false, asm.scanErrorf("(%s%+d) out of range -128 to 127", a, n)
-		}
-		return serializeIntArg(asm, n, const8)
+		return nil, false, nil
 	case argTypePort:
 		return eb.e.evalAs(asm, const8, false)
 	case argTypePortC:

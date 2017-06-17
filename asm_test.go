@@ -195,6 +195,25 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: []byte{0xdd, 0x09, 0xdd, 0x2a, 25, 4, 0xdd, 0x66, 5, 0xdd, 0x66, 256 - 1},
 		},
+		{
+			fs: ffs{
+				"a.asm": "bit 4, (ix+10); set 0, (ix-9); res 1, (ix+0)",
+			},
+			want: []byte{0xdd, 0xcb, 10, 0x66, 0xdd, 0xcb, 256 - 9, 0xc6, 0xdd, 0xcb, 0, 0x8e},
+		},
+		{
+			fs: ffs{
+				"a.asm": "bit 4, (iy+10); set 0, (iy-9); res 1, (iy+0)",
+			},
+			want: []byte{0xfd, 0xcb, 10, 0x66, 0xfd, 0xcb, 256 - 9, 0xc6, 0xfd, 0xcb, 0, 0x8e},
+		},
+		{
+			// We should be able to write (ix) and (iy) instead of (ix+0) and (iy+0).
+			fs: ffs{
+				"a.asm": "res 1, (ix); res 1, (iy)",
+			},
+			want: []byte{0xdd, 0xcb, 0, 0x8e, 0xfd, 0xcb, 0, 0x8e},
+		},
 	}
 	for _, tc := range testcases {
 		testSnippet(t, 0x8000, tc.fs, tc.want)
