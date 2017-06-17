@@ -133,6 +133,42 @@ var (
 		"", "pop iy", "", "ex (sp), iy", "", "push iy", "", "", "", "jp (iy)", "", "", "", "", "", "",
 		"", "", "", "", "", "", "", "", "", "ld sp, iy", "", "", "", "", "", "",
 	}
+	ixBitPlaneTable = padOut([]string{
+		"rlc (ix+*)", "rrc (ix+*)",
+		"rl (ix+*)", "rr (ix+*)",
+		"sla (ix+*)", "sra (ix+*)",
+		"", "srl (ix+*)",
+		"bit 0, (ix+*)", "bit 1, (ix+*)",
+		"bit 2, (ix+*)", "bit 3, (ix+*)",
+		"bit 4, (ix+*)", "bit 5, (ix+*)",
+		"bit 6, (ix+*)", "bit 7, (ix+*)",
+		"res 0, (ix+*)", "res 1, (ix+*)",
+		"res 2, (ix+*)", "res 3, (ix+*)",
+		"res 4, (ix+*)", "res 5, (ix+*)",
+		"res 6, (ix+*)", "res 7, (ix+*)",
+		"set 0, (ix+*)", "set 1, (ix+*)",
+		"set 2, (ix+*)", "set 3, (ix+*)",
+		"set 4, (ix+*)", "set 5, (ix+*)",
+		"set 6, (ix+*)", "set 7, (ix+*)",
+	})
+	iyBitPlaneTable = padOut([]string{
+		"rlc (iy+*)", "rrc (iy+*)",
+		"rl (iy+*)", "rr (iy+*)",
+		"sla (iy+*)", "sra (iy+*)",
+		"", "srl (iy+*)",
+		"bit 0, (iy+*)", "bit 1, (iy+*)",
+		"bit 2, (iy+*)", "bit 3, (iy+*)",
+		"bit 4, (iy+*)", "bit 5, (iy+*)",
+		"bit 6, (iy+*)", "bit 7, (iy+*)",
+		"res 0, (iy+*)", "res 1, (iy+*)",
+		"res 2, (iy+*)", "res 3, (iy+*)",
+		"res 4, (iy+*)", "res 5, (iy+*)",
+		"res 6, (iy+*)", "res 7, (iy+*)",
+		"set 0, (iy+*)", "set 1, (iy+*)",
+		"set 2, (iy+*)", "set 3, (iy+*)",
+		"set 4, (iy+*)", "set 5, (iy+*)",
+		"set 6, (iy+*)", "set 7, (iy+*)",
+	})
 )
 
 var planeTestTables = []struct {
@@ -161,6 +197,28 @@ var planeTestTables = []struct {
 		prefix: []byte{0xfd},
 		table:  iyPlaneTable,
 	},
+	{
+		prefix: []byte{0xdd, 0xcb},
+		table:  ixBitPlaneTable,
+	},
+	{
+		prefix: []byte{0xfd, 0xcb},
+		table:  iyBitPlaneTable,
+	},
+}
+
+func padOut(xs []string) []string {
+	var r []string
+	k := 0
+	for i := 0; i < 256; i++ {
+		if i%16 == 6 || i%16 == 14 {
+			r = append(r, xs[k])
+			k++
+		} else {
+			r = append(r, "")
+		}
+	}
+	return r
 }
 
 func planeDiff(got, want []string, start, end int) error {

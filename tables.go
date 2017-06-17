@@ -547,8 +547,9 @@ var (
 	}
 
 	ixyExcludes = map[string]map[arg]bool{
-		"ex": map[arg]bool{arg2(regDE, regHL): true},
-		"jp": map[arg]bool{indHL: true},
+		"ex":  map[arg]bool{arg2(regDE, regHL): true},
+		"jp":  map[arg]bool{indHL: true},
+		"sll": map[arg]bool{indHL: true},
 	}
 
 	ixCommands = joinCommands(
