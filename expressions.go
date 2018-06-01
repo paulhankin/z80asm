@@ -1,3 +1,5 @@
+// Package z80asm contains a text-based z80 assember.
+// The format of input files can be found in the README.md file.
 package z80asm
 
 import (
@@ -174,7 +176,7 @@ func (ebo exprBinaryOp) apply(asm *Assembler, n1 int64, e2 expr) (int64, error) 
 		return n1 / n2, nil
 	case '%':
 		if n2 == 0 {
-			return 0, fmt.Errorf("second arg of % must be non-zero")
+			return 0, fmt.Errorf("second arg of %% must be non-zero")
 		}
 		return n1 % n2, nil
 	case '&':
