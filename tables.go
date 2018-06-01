@@ -39,7 +39,7 @@ func argType(a arg) argumentType {
 	switch a {
 	case void:
 		return argTypeVoid
-	case regA, regB, regC, regD, regE, regH, regL, regI, regR, regAF, regAF_, regBC, regDE, regHL, regSP, regIX, regIXL, regIXH, regIY, regIYH, regIYL:
+	case regA, regB, regC, regD, regE, regH, regL, regI, regR, regAF, regAF2, regBC, regDE, regHL, regSP, regIX, regIXL, regIXH, regIY, regIYH, regIYL:
 		return argTypeReg
 	case indBC, indDE, indHL, indSP, indIX, indIY:
 		return argTypeIndReg
@@ -89,7 +89,7 @@ const (
 	regI
 	regR
 	regAF
-	regAF_
+	regAF2
 	regBC
 	regDE
 	regHL
@@ -153,7 +153,7 @@ var argMap = map[arg]string{
 	regI:      "i",
 	regR:      "r",
 	regAF:     "af",
-	regAF_:    "af'",
+	regAF2:    "af'",
 	regBC:     "bc",
 	regDE:     "de",
 	regHL:     "hl",
@@ -381,7 +381,7 @@ var commandsArgs = map[string]args{
 		stdOpts(regL, 0x68),
 		stdOpts(regA, 0x78)),
 	"ex": args{
-		arg2(regAF, regAF_): b(0x08),
+		arg2(regAF, regAF2): b(0x08),
 		arg2(indSP, regHL):  b(0xe3),
 		arg2(regDE, regHL):  b(0xeb),
 	},

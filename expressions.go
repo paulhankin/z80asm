@@ -52,12 +52,12 @@ func (es exprString) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, erro
 	return []byte(es.s), true, nil
 }
 
-func (e exprString) String() string {
-	return fmt.Sprintf("%q", e.s)
+func (es exprString) String() string {
+	return fmt.Sprintf("%q", es.s)
 }
 
-func (e exprString) stringPri(int) string {
-	return e.String()
+func (es exprString) stringPri(int) string {
+	return es.String()
 }
 
 type exprUnaryOp struct {
@@ -65,12 +65,12 @@ type exprUnaryOp struct {
 	e  expr
 }
 
-func (en exprUnaryOp) String() string {
-	return en.stringPri(0)
+func (euo exprUnaryOp) String() string {
+	return euo.stringPri(0)
 }
 
-func (en exprUnaryOp) stringPri(pri int) string {
-	return fmt.Sprintf("%c%s", en.op, en.e.stringPri(precUnary))
+func (euo exprUnaryOp) stringPri(pri int) string {
+	return fmt.Sprintf("%c%s", euo.op, euo.e.stringPri(precUnary))
 }
 
 func bool2int(b bool) int64 {
@@ -122,8 +122,8 @@ func getIntValue(asm *Assembler, e expr) (int64, bool, error) {
 	}
 }
 
-func (en exprUnaryOp) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
-	iv, ok, err := getIntValue(asm, en)
+func (euo exprUnaryOp) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, error) {
+	iv, ok, err := getIntValue(asm, euo)
 	if err != nil || !ok {
 		return nil, ok, err
 	}
@@ -135,15 +135,15 @@ type exprBinaryOp struct {
 	e1, e2 expr
 }
 
-func (e exprBinaryOp) String() string {
-	return e.stringPri(0)
+func (ebo exprBinaryOp) String() string {
+	return ebo.stringPri(0)
 }
 
-func (e exprBinaryOp) stringPri(pri int) string {
-	myPri := opPrecedence[e.op]
-	left := e.e1.stringPri(myPri)
-	right := e.e2.stringPri(myPri + 1)
-	result := fmt.Sprintf("%s %c %s", left, e.op, right)
+func (ebo exprBinaryOp) stringPri(pri int) string {
+	myPri := opPrecedence[ebo.op]
+	left := ebo.e1.stringPri(myPri)
+	right := ebo.e2.stringPri(myPri + 1)
+	result := fmt.Sprintf("%s %c %s", left, ebo.op, right)
 	if myPri < pri {
 		return "(" + result + ")"
 	}

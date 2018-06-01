@@ -425,16 +425,16 @@ func (asm *Assembler) setLabel(label string) error {
 	return nil
 }
 
-func (a *Assembler) assembleLabel() error {
-	tok, err := a.nextToken()
+func (asm *Assembler) assembleLabel() error {
+	tok, err := asm.nextToken()
 	if err != nil {
 		return err
 	}
 	switch tok.t {
 	case scanner.Ident:
-		return a.setLabel(tok.s)
+		return asm.setLabel(tok.s)
 	default:
-		return a.scanErrorf("unexpected %s", tok)
+		return asm.scanErrorf("unexpected %s", tok)
 	}
 }
 

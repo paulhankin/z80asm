@@ -4,7 +4,7 @@ package z80asm
 // of a 48k ZX Spectrum. Except for the ROM.
 type Machine struct {
 	AF, BC, DE, HL, IX, IY uint16
-	AF_, BC_, DE_, HL_     uint16
+	AF2, BC2, DE2, HL2     uint16
 	SP                     uint16
 	PC                     uint16
 	I                      uint8
