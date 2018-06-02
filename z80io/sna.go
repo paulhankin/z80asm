@@ -1,3 +1,5 @@
+// Package z80io can write z80 binary images.
+// Currently, ZX Spectrum .sna files are supported.
 package z80io
 
 import (
@@ -75,7 +77,7 @@ func WriteSNA(f *bufio.Writer, m *z80asm.Machine) error {
 	}
 
 	wb(m.I)
-	for _, reg := range []uint16{m.HL_, m.DE_, m.BC_, m.AF_, m.HL, m.DE, m.BC, m.IY, m.IX} {
+	for _, reg := range []uint16{m.HL2, m.DE2, m.BC2, m.AF2, m.HL, m.DE, m.BC, m.IY, m.IX} {
 		ww(reg)
 	}
 	var interrupt uint8
