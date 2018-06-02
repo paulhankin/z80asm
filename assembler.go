@@ -414,7 +414,7 @@ func (asm *Assembler) setLabel(label string) error {
 	if asm.pass == 1 {
 		fass := asm.labelAssign[label]
 		if asm.location() != fass {
-			return asm.scanErrorf("Label %q redefined. First defined at %s", label, fass)
+			return asm.scanErrorf("label %q redefined. First defined at %s", label, fass)
 		}
 		return nil
 	}
