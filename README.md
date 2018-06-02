@@ -3,7 +3,8 @@ Z80 Assembler
 
 This repository contains a z80 assembler, both as a command-line tool, and as a library.
 It currently is somewhat limited, both in assembler features (for example, there's no
-macros), and can currently only output ZX-Spectrum .sna files.
+macros), and can currently only output ZX-Spectrum .sna files. But the assembler does
+implement the full (standard) z80 instruction set.
 
 The code is MIT licensed, and the details can be found in LICENSE.txt.
 
