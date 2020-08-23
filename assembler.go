@@ -39,8 +39,9 @@ type Assembler struct {
 	labelAssign  map[string]string
 	m            []uint8
 
-	scanners []*scanner.Scanner
-	closers  []io.Closer
+	scanners  []*scanner.Scanner
+	closers   []io.Closer
+	openFiles []string // to avoid recursive includes
 
 	scanErr   error
 	lastToken token
@@ -159,15 +160,22 @@ func (asm *Assembler) popScanner() (bool, error) {
 	}
 	asm.closers = asm.closers[:len(asm.closers)-1]
 	asm.scanners = asm.scanners[:len(asm.scanners)-1]
+	asm.openFiles = asm.openFiles[:len(asm.openFiles)-1]
 	return len(asm.scanners) == 0, nil
 }
 
 func (asm *Assembler) pushScanner(filename string) error {
+	for _, f := range asm.openFiles {
+		if f == filename {
+			return fmt.Errorf("recursive include of file %q", filename)
+		}
+	}
 	f, err := asm.opener(filename)
 	if err != nil {
 		return fmt.Errorf("failed to assemble %q: %v", filename, err)
 	}
 
+	asm.openFiles = append(asm.openFiles, filename)
 	var scan scanner.Scanner
 	scan.Init(f)
 	scan.Mode = scanner.ScanIdents | scanner.ScanInts | scanner.ScanChars | scanner.ScanStrings | scanner.ScanRawStrings | scanner.ScanComments | scanner.SkipComments

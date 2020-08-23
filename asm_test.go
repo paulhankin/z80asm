@@ -424,6 +424,7 @@ func TestParseErrors(t *testing.T) {
 		{"ld z, 1+(2+3)", "1 + (2 + 3)"},
 		{"ld z, (1+2)+3", "1 + 2 + 3"},
 		{"ld a, x; const x = 42", "use of const \"x\" before defin"},
+		{`db 0x42; include "a.asm"`, "recursive"},
 	}
 	for _, tc := range testCases {
 		testFailureSnippet(t, 0, ffs{"a.asm": tc.asm}, tc.wantErr)
