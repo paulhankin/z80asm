@@ -12,11 +12,12 @@ import (
 )
 
 var baseCommandTable = map[string]instrAssembler{
-	"org":   commandOrg{},
-	"db":    cmdData(const8),
-	"dw":    cmdData(const16),
-	"ds":    cmdData(argstring),
-	"const": commandConst{},
+	"org":     commandOrg{},
+	"db":      cmdData(const8),
+	"dw":      cmdData(const16),
+	"ds":      cmdData(argstring),
+	"const":   commandConst{},
+	"include": commandInclude{},
 }
 
 type commandAssembler struct {
@@ -37,9 +38,12 @@ type Assembler struct {
 	constsDef    map[string]bool
 	labelAssign  map[string]string
 	m            []uint8
-	scan         *scanner.Scanner
-	scanErr      error
-	lastToken    token
+
+	scanners []*scanner.Scanner
+	closers  []io.Closer
+
+	scanErr   error
+	lastToken token
 }
 
 func openFile(filename string) (io.ReadCloser, error) {
@@ -149,12 +153,20 @@ func endStatement(t token) bool {
 	return t.t == ';' || t.t == scanner.EOF || t.t == '\n'
 }
 
-func (asm *Assembler) assembleFile(filename string) error {
+func (asm *Assembler) popScanner() (bool, error) {
+	if err := asm.closers[len(asm.closers)-1].Close(); err != nil {
+		return true, asm.scanErrorf("error closing file: %v", err)
+	}
+	asm.closers = asm.closers[:len(asm.closers)-1]
+	asm.scanners = asm.scanners[:len(asm.scanners)-1]
+	return len(asm.scanners) == 0, nil
+}
+
+func (asm *Assembler) pushScanner(filename string) error {
 	f, err := asm.opener(filename)
 	if err != nil {
 		return fmt.Errorf("failed to assemble %q: %v", filename, err)
 	}
-	defer f.Close()
 
 	var scan scanner.Scanner
 	scan.Init(f)
@@ -164,7 +176,17 @@ func (asm *Assembler) assembleFile(filename string) error {
 	scan.Error = func(s *scanner.Scanner, msg string) {
 		asm.scanErr = asm.scanErrorf("%s", msg)
 	}
-	asm.scan = &scan
+	asm.scanners = append(asm.scanners, &scan)
+	asm.closers = append(asm.closers, f)
+	return nil
+}
+
+func (asm *Assembler) assembleFile(filename string) error {
+	err := asm.pushScanner(filename)
+	if err != nil {
+		return err
+	}
+
 	var errs []string
 	for asm.canContinue() && len(errs) < 20 {
 		if err := asm.assemble(); err != nil {
@@ -182,8 +204,12 @@ func (asm *Assembler) assembleFile(filename string) error {
 	return nil
 }
 
+func (asm *Assembler) scan() *scanner.Scanner {
+	return asm.scanners[len(asm.scanners)-1]
+}
+
 func (asm *Assembler) location() string {
-	return fmt.Sprintf("%s:%d.%d", asm.scan.Position.Filename, asm.scan.Position.Line, asm.scan.Position.Column)
+	return fmt.Sprintf("%s:%d.%d", asm.scan().Position.Filename, asm.scan().Position.Line, asm.scan().Position.Column)
 }
 
 func (asm *Assembler) scanErrorf(fs string, args ...interface{}) error {
@@ -233,17 +259,17 @@ func makeOperatorCompletions() map[rune]map[rune]rune {
 }
 
 func (asm *Assembler) nextToken() (token, error) {
-	t := asm.scan.Scan()
+	t := asm.scan().Scan()
 	if asm.scanErr != nil {
 		return token{}, asm.scanErr
 	}
 	if m2 := tokOperatorPrefixes[t]; m2 != nil {
-		if tok := m2[asm.scan.Peek()]; tok != 0 {
-			asm.scan.Scan()
+		if tok := m2[asm.scan().Peek()]; tok != 0 {
+			asm.scan().Scan()
 			return token{tok, ""}, asm.scanErr
 		}
 	}
-	asm.lastToken = token{t, asm.scan.TokenText()}
+	asm.lastToken = token{t, asm.scan().TokenText()}
 	return asm.lastToken, asm.scanErr
 }
 
@@ -275,7 +301,13 @@ func (asm *Assembler) assemble() error {
 		}
 		switch tok.t {
 		case scanner.EOF:
-			return nil
+			done, err := asm.popScanner()
+			if err != nil {
+				return err
+			}
+			if done {
+				return nil
+			}
 		case scanner.Ident:
 			if err := asm.assembleCommand(tok.s); err != nil {
 				return err
@@ -452,6 +484,31 @@ func joinCommands(cmdss ...map[string]args) map[string]args {
 		}
 	}
 	return r
+}
+
+type commandInclude struct{}
+
+func getString(e expr) (string, error) {
+	switch v := e.(type) {
+	case exprString:
+		return v.s, nil
+	}
+	return "", fmt.Errorf("expected string, got %v", e)
+}
+
+func (commandInclude) W(asm *Assembler) error {
+	args, err := asm.parseArgs(false)
+	if err != nil {
+		return err
+	}
+	if len(args) != 1 {
+		return asm.scanErrorf("expected \"filename.asm\" to follow include, got: %v", args)
+	}
+	name, err := getString(args[0])
+	if err != nil {
+		return asm.scanErrorf("expected \"filename.asm\" to follow include, got: %v", args[0])
+	}
+	return asm.pushScanner(name)
 }
 
 type commandConst struct{}

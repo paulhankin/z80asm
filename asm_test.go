@@ -285,6 +285,13 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: []byte{0x03, 0x80},
 		},
+		{
+			fs: ffs{
+				"a.asm": `db 0x01; const x = 0xa0; include "b.asm"; db 0x42`,
+				"b.asm": `db 0x02, x`,
+			},
+			want: []byte{0x01, 0x02, 0xa0, 0x42},
+		},
 	}
 	for _, tc := range testcases {
 		for c := 0; c < 3; c++ {
