@@ -34,6 +34,7 @@ type Assembler struct {
 	target       int // Where in the total memory the code is written
 	l            map[string]uint16
 	consts       map[string]int64
+	constsDef    map[string]bool
 	labelAssign  map[string]string
 	m            []uint8
 	scan         *scanner.Scanner
@@ -110,6 +111,7 @@ func NewAssembler(opts ...AssemblerOpt) (*Assembler, error) {
 		target:       0x8000,
 		l:            make(map[string]uint16),
 		consts:       make(map[string]int64),
+		constsDef:    make(map[string]bool),
 		labelAssign:  make(map[string]string),
 		m:            make([]uint8, 64*1024),
 	}
@@ -133,6 +135,9 @@ func (asm *Assembler) AssembleFile(filename string) error {
 		asm.pc = pc
 		asm.target = target
 		asm.pass = pass
+		// Reset the map that says whether we've seen a const.
+		// We use this to prevent use of const before definition.
+		asm.constsDef = make(map[string]bool)
 		if err := asm.assembleFile(filename); pass == 1 && err != nil {
 			return err
 		}
@@ -321,9 +326,15 @@ func (asm *Assembler) GetLabel(l string) (uint16, bool) {
 
 // GetConst returns the value of the given const.
 // It is only valid after the assembler has run.
-func (asm *Assembler) GetConst(c string) (int64, bool) {
+func (asm *Assembler) GetConst(c string) (int64, bool, error) {
+	if !asm.constsDef[c] {
+		if _, ok := asm.consts[c]; ok {
+			return 0, false, asm.scanErrorf("use of const %q before definition", c)
+		}
+		return 0, false, nil
+	}
 	v, ok := asm.consts[c]
-	return v, ok
+	return v, ok, nil
 }
 
 type cmdData arg
@@ -475,12 +486,11 @@ func (commandConst) W(asm *Assembler) error {
 	if !ok {
 		return asm.scanErrorf("failed to evaluate const %q value %q", name, args[1])
 	}
-	if asm.pass == 0 {
-		if _, ok := asm.consts[name]; ok {
-			return asm.scanErrorf("redefining %q", name)
-		}
-		asm.consts[name] = n
+	if asm.constsDef[name] {
+		return asm.scanErrorf("redefining %q", name)
 	}
+	asm.constsDef[name] = true
+	asm.consts[name] = n
 	return nil
 }
 

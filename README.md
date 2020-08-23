@@ -65,6 +65,23 @@ This causes the following bytes to be generated at and beyond memory location `0
 
     1, 2, 3, 0x34, 0x12, 'h', 'e', 'l', 'l', 'o', 0x0a
 
+A two-value variant of `org` allows the PC and target memory to be specified separately that may be useful if there is a larger amount of RAM that can
+be paged in via a memory map, for example like that on the Spectrum Next.
+
+    org 0x9000, 0xff0000
+    .label
+    db 1, 2, 3, 4
+    dw label
+
+This causes the following bytes to be generate at memory location `0xff0000`:
+
+    1, 2, 3, 4, 0x00, 0x90
+
+Named constants can be defined with `const`, and used thereafter:
+
+    const x = 0xabcd
+    dw x & 0xf0f0
+
 If you want the length of a string (for example as an 8-bit value), you can use label arithmetic. Note that it is fine to refer to labels before they appear:
 
     db endhello - hello

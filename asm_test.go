@@ -274,9 +274,16 @@ func TestAsmSnippets(t *testing.T) {
 
 		{
 			fs: ffs{
-				"a.asm": "const x = 0xabcd; dw (x & 0xf7f)",
+				"a.asm": "const x = 0xabcd; dw x & 0xf7f",
 			},
 			want: []byte{0x4d, 0x0b},
+		},
+		{
+			// test we can define a const that depends on a later label!
+			fs: ffs{
+				"a.asm": "org 0x8000; const x = label + 1; dw x; .label",
+			},
+			want: []byte{0x03, 0x80},
 		},
 	}
 	for _, tc := range testcases {
@@ -409,6 +416,7 @@ func TestParseErrors(t *testing.T) {
 		{"ld z, 1+2+3", "1 + 2 + 3"},
 		{"ld z, 1+(2+3)", "1 + (2 + 3)"},
 		{"ld z, (1+2)+3", "1 + 2 + 3"},
+		{"ld a, x; const x = 42", "use of const \"x\" before defin"},
 	}
 	for _, tc := range testCases {
 		testFailureSnippet(t, 0, ffs{"a.asm": tc.asm}, tc.wantErr)

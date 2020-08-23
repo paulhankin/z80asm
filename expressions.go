@@ -332,7 +332,10 @@ func (ei exprIdent) getIntValue(asm *Assembler) (int64, bool, error) {
 	if ei.r != 0 || ei.cc != 0 {
 		return 0, false, nil
 	}
-	c, ok := asm.GetConst(ei.id)
+	c, ok, err := asm.GetConst(ei.id)
+	if err != nil {
+		return 0, false, err
+	}
 	if ok {
 		return int64(c), true, nil
 	}
