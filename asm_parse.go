@@ -41,6 +41,8 @@ func argRange(a arg) (min, max, size int64) {
 		return -128, 255, 1 // sloppily allow signed or unsigned bytes
 	case const16:
 		return -32768, 65535, 2
+	case const16be:
+		return -32768, 65535, 2
 	case constS8:
 		return -128, 127, 1
 	case addr16:
@@ -56,6 +58,14 @@ func argRange(a arg) (min, max, size int64) {
 	return 0, 0, 0
 }
 
+func writesBigEndian(a arg) bool {
+	_, _, sz := argRange(a)
+	if sz != 2 {
+		log.Fatalf("got unexpected request for big-endianness for non-2-byte arg %v", a)
+	}
+	return a == const16be
+}
+
 func serializeIntArg(asm *Assembler, i int64, a arg) ([]byte, bool, error) {
 	min, max, size := argRange(a)
 	if i < min || i > max {
@@ -66,7 +76,11 @@ func serializeIntArg(asm *Assembler, i int64, a arg) ([]byte, bool, error) {
 	case 1:
 		return []byte{byte(ui)}, true, nil
 	case 2:
-		return []byte{byte(ui % 256), byte(ui / 256)}, true, nil
+		if writesBigEndian(a) {
+			return []byte{byte(ui / 256), byte(ui % 256)}, true, nil
+		} else {
+			return []byte{byte(ui % 256), byte(ui / 256)}, true, nil
+		}
 	default:
 		log.Fatalf("weird size %d", size)
 	}
@@ -170,7 +184,7 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 			}
 			nt, err := a.nextToken()
 			return a.continueExpr(pri, exprInt{i}, nt, err)
-		case scanner.String:
+		case scanner.String, scanner.RawString:
 			r, err := strconv.Unquote(tok.s)
 			if err != nil {
 				return nil, token{}, a.scanErrorf("bad string %q: %v", tok.s, err)

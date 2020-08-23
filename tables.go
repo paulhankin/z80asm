@@ -45,7 +45,7 @@ func argType(a arg) argumentType {
 		return argTypeIndReg
 	case indIXplus, indIYplus:
 		return argTypeIndRegPlusInt
-	case const8, const16, constS8:
+	case const8, const16, const16be, constS8:
 		return argTypeInt
 	case addr16:
 		return argTypeAddress
@@ -110,6 +110,7 @@ const (
 	indSP
 	const8
 	const16
+	const16be
 	constS8
 	addr16 // TODO: use this consistently
 	reladdr8
@@ -174,6 +175,7 @@ var argMap = map[arg]string{
 	indSP:     "(sp)",
 	const8:    "*",
 	const16:   "**",
+	const16be: "**",
 	constS8:   "*",
 	addr16:    "**",
 	reladdr8:  "*",
@@ -252,6 +254,21 @@ var commands0arg = map[string][]byte{
 	"outd": b(0xed, 0xab),
 	"otdr": b(0xed, 0xbb),
 	"rld":  b(0xed, 0x6f),
+}
+
+// extra commands0arg for Z80N on the spectrum next.
+var commands0argNext = map[string][]byte{
+	"ldix":    b(0xed, 0xa4),
+	"ldws":    b(0xed, 0xa5),
+	"ldirx":   b(0xed, 0xb4),
+	"lddx":    b(0xed, 0xac),
+	"lddrx":   b(0xed, 0xbc),
+	"ldpirx":  b(0xed, 0xb7),
+	"outinb":  b(0xed, 0x90),
+	"swapnib": b(0xed, 0x23),
+	"pixeldn": b(0xed, 0x93),
+	"pixelan": b(0xed, 0x94),
+	"setae":   b(0xed, 0x95),
 }
 
 func stdOpts(arg1 arg, base byte, prefix ...byte) args {
@@ -532,6 +549,20 @@ var commandsArgs = map[string]args{
 		val00h: b(0xed, 0x46),
 		val01h: b(0xed, 0x56),
 		val02h: b(0xed, 0x5e),
+	},
+}
+
+var commandsArgsNext = map[string]args{
+	"add": args{
+		arg2(regHL, regA):    b(0xed, 0x31),
+		arg2(regDE, regA):    b(0xed, 0x32),
+		arg2(regBC, regA):    b(0xed, 0x33),
+		arg2(regHL, const16): b(0xed, 0x34),
+		arg2(regDE, const16): b(0xed, 0x35),
+		arg2(regBC, const16): b(0xed, 0x36),
+	},
+	"push": args{
+		const16be: b(0xed, 0x8a),
 	},
 }
 

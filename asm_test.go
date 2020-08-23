@@ -333,7 +333,7 @@ func TestParseErrors(t *testing.T) {
 		{"ld hl, 6%(4-4)", "zero"},
 		{"db 256", "not in the range"},
 		{"dw 65536", "not in the range"},
-		{".label ld hl, 42 ; .label ld bc, 42", "Label \"label\" redefined"},
+		{".label ld hl, 42 ; .label ld bc, 42", "label \"label\" redefined"},
 		{"ld z, (1+2)", "(1 + 2)"},
 		{"ld z, 1+(2*3)", "1 + 2 * 3"},
 		{"ld z, 1*(2+3)", "1 * (2 + 3)"},

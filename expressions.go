@@ -280,7 +280,7 @@ func (eb exprBracket) evalAs(asm *Assembler, a arg, top bool) ([]byte, bool, err
 				return nil, ok, err
 			}
 			if ex.op != '+' && ex.op != '-' {
-				return nil, false, asm.scanErrorf("expected %s+n or %s-n, got %c", a, ex.op)
+				return nil, false, asm.scanErrorf("expected %s+n or %s-n, got %c", a, a, ex.op)
 			}
 			n, ok, err := getIntValue(asm, ex.e2)
 			if !ok {
