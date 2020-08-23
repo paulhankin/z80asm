@@ -380,9 +380,9 @@ func getPlane(asm *Assembler, prefix []byte) []string {
 }
 
 func TestPlanes(t *testing.T) {
-	asm0, err := NewAssembler(nil)
-	asm1, err := NewAssembler(nil, UseNextCore(1))
-	asm2, err := NewAssembler(nil, UseNextCore(2))
+	asm0, err := NewAssembler()
+	asm1, err := NewAssembler(UseNextCore(1))
+	asm2, err := NewAssembler(UseNextCore(2))
 
 	asms := []*Assembler{asm0, asm1, asm2}
 	names := []string{"z80", "z80n core 1", "z80n core 2"}

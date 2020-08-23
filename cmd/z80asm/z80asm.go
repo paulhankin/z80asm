@@ -61,13 +61,18 @@ func main() {
 		pf("ERROR: unrecognized cpu: %q\n", *cpu)
 		usage()
 	}
-	m := z80asm.NewMachine()
-	asm, err := z80asm.NewAssembler(m.RAM[:], aopts...)
+	asm, err := z80asm.NewAssembler(aopts...)
 	if err != nil {
 		pf("%s\n", err)
 		os.Exit(1)
 	}
 	if err := asm.AssembleFile(os.Args[1]); err != nil {
+		pf("%s\n", err)
+		os.Exit(1)
+	}
+
+	m, err := z80asm.NewMachine(asm.RAM())
+	if err != nil {
 		pf("%s\n", err)
 		os.Exit(1)
 	}
@@ -85,6 +90,7 @@ func main() {
 		ext := path.Ext(os.Args[1])
 		out = path.Join(dir, base[:len(base)-len(ext)]+".sna")
 	}
+
 	if err := z80io.SaveSNA(out, m); err != nil {
 		pf("failed to write .sna file %s: %v\n", out, err)
 		os.Exit(3)

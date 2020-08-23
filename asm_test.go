@@ -30,8 +30,7 @@ func toHex(bs []byte) string {
 
 func testFailureSnippet(t *testing.T, nextCore int, fs ffs, mustContain string) {
 	desc := fs["a.asm"]
-	ram := make([]byte, 65536)
-	asm, err := NewAssembler(ram, UseNextCore(nextCore))
+	asm, err := NewAssembler(UseNextCore(nextCore))
 	if err != nil {
 		t.Fatalf("%q: failed to create assembler: %v", desc, err)
 	}
@@ -48,8 +47,7 @@ func testFailureSnippet(t *testing.T, nextCore int, fs ffs, mustContain string) 
 
 func testSnippet(t *testing.T, nextCore, org int, fs ffs, want []byte) {
 	desc := fs["a.asm"]
-	ram := make([]byte, 65536)
-	asm, err := NewAssembler(ram, UseNextCore(nextCore))
+	asm, err := NewAssembler(UseNextCore(nextCore))
 	if err != nil {
 		t.Fatalf("%q: failed to create assembler: %v", desc, err)
 	}
@@ -58,6 +56,7 @@ func testSnippet(t *testing.T, nextCore, org int, fs ffs, want []byte) {
 		t.Errorf("%q: assembler with nextCore=%d produced error: %v", desc, nextCore, err)
 		return
 	}
+	ram := asm.RAM()
 	for i := 0; i < 65536; i++ {
 		if i < org || i >= org+len(want) {
 			if ram[i] != 0 {
@@ -265,6 +264,13 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: []byte{0xed, 0x28, 0xed, 0x29, 0xed, 0x2a, 0xed, 0x2b, 0xed, 0x2c, 0xed, 0x98},
 		},
+		{
+			// Test relocation: we set pc to 0x1000 but compile at 0x8000.
+			fs: ffs{
+				"a.asm": "org 0x1000, 0x8000; db 0xff; .label; dw label",
+			},
+			want: []byte{0xff, 0x01, 0x10},
+		},
 	}
 	for _, tc := range testcases {
 		for c := 0; c < 3; c++ {
@@ -279,8 +285,7 @@ func TestAsmSnippets(t *testing.T) {
 
 func testMultipleErrors(t *testing.T, desc, src string, wantCount int) {
 	fs := ffs{"a.asm": src}
-	ram := make([]byte, 65536)
-	asm, err := NewAssembler(ram)
+	asm, err := NewAssembler()
 	if err != nil {
 		t.Fatalf("%q: failed to create assembler: %v", desc, err)
 	}

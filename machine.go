@@ -12,10 +12,12 @@ type Machine struct {
 	IntEnabled             bool
 	IntMode                uint8 // 0, 1 or 2.
 	BorderColor            uint8 // 0 to 7.
-	RAM                    [65536]uint8
+	RAM                    []uint8
 }
 
 // NewMachine returns a newly initialised Machine.
-func NewMachine() *Machine {
-	return &Machine{}
+func NewMachine(RAM []uint8) (*Machine, error) {
+	return &Machine{
+		RAM: RAM,
+	}, nil
 }

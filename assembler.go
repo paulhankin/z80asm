@@ -29,7 +29,8 @@ type Assembler struct {
 	commandTable map[string]instrAssembler
 	opener       func(string) (io.ReadCloser, error)
 	pass         int
-	p            uint16
+	pc           int // The PC from the point of view of the code
+	target       int // Where in the total memory the code is written
 	l            map[string]uint16
 	labelAssign  map[string]string
 	m            []uint8
@@ -57,10 +58,10 @@ func UseNextCore(core int) AssemblerOpt {
 	}
 }
 
-// NewAssembler constructs a new assembler with the given data as RAM.
+// NewAssembler constructs a new assembler.
 // By default, the assembler will assemble code starting at address
 // 0x8000.
-func NewAssembler(ram []uint8, opts ...AssemblerOpt) (*Assembler, error) {
+func NewAssembler(opts ...AssemblerOpt) (*Assembler, error) {
 	var aopt assemblerOption
 	for _, opt := range opts {
 		if err := opt(&aopt); err != nil {
@@ -103,23 +104,31 @@ func NewAssembler(ram []uint8, opts ...AssemblerOpt) (*Assembler, error) {
 	a := &Assembler{
 		commandTable: cmdTable,
 		opener:       openFile,
-		p:            0x8000,
+		pc:           0x8000,
+		target:       0x8000,
 		l:            make(map[string]uint16),
 		labelAssign:  make(map[string]string),
-		m:            ram,
+		m:            make([]uint8, 64*1024),
 	}
 	return a, nil
+}
+
+func (asm *Assembler) RAM() []uint8 {
+	return asm.m
 }
 
 // AssembleFile reads the named file, and assembles it as z80
 // instructions.
 func (asm *Assembler) AssembleFile(filename string) error {
-	pc := asm.p
+	pc := asm.pc
+	target := asm.target
 	defer func() {
-		asm.p = pc
+		asm.pc = pc
+		asm.target = target
 	}()
 	for pass := 0; pass < 2; pass++ {
-		asm.p = pc
+		asm.pc = pc
+		asm.target = target
 		asm.pass = pass
 		if err := asm.assembleFile(filename); pass == 1 && err != nil {
 			return err
@@ -278,11 +287,16 @@ func (asm *Assembler) assemble() error {
 }
 
 func (asm *Assembler) writeByte(u uint8) error {
-	if int(asm.p) >= len(asm.m) {
-		return asm.scanErrorf("byte write out of range: %d", asm.p)
+	if int(asm.target) >= len(asm.m) {
+		newLen := (asm.target + 16*1024 - 1) / (16 * 1024) * 16 * 1024
+		asm.m = append(asm.m, make([]uint8, newLen-len(asm.m))...)
 	}
-	asm.m[asm.p] = u
-	asm.p++
+	if asm.pc >= 64*1024 || asm.pc < 0 {
+		return fmt.Errorf("pc out of range: %x", asm.pc)
+	}
+	asm.m[asm.target] = u
+	asm.pc++
+	asm.target++
 	return nil
 }
 
@@ -426,20 +440,37 @@ func (commandOrg) W(asm *Assembler) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 1 {
-		return asm.scanErrorf("org takes one argument: %d found", len(args))
+	if len(args) < 1 || len(args) > 2 {
+		return asm.scanErrorf("org takes one or two arguments: %d found", len(args))
 	}
 	n, ok, err := getIntValue(asm, args[0])
 	if err != nil {
 		return err
 	}
+	arg1 := args[0]
+	if len(args) >= 2 {
+		arg1 = args[1]
+	}
 	if !ok {
-		return asm.scanErrorf("org wants address, found %s", args[0])
+		return asm.scanErrorf("org first (pc) argument should be an address, found %s", args[0])
 	}
-	if n < 16384 || n > 65535 {
-		return asm.scanErrorf("org %x out of range", n)
+	if n < 0 || n >= 65536 {
+		return asm.scanErrorf("org first (pc) argument %x out of range", n)
 	}
-	asm.p = uint16(n)
+
+	t, ok, err := getIntValue(asm, arg1)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return asm.scanErrorf("org second (target) argument should be an address, found %s", arg1)
+	}
+	if t < 0 || t >= 1024*1024*2 {
+		return asm.scanErrorf("org second (target) argument %x out of range", t)
+	}
+
+	asm.pc = int(n)
+	asm.target = int(t)
 	return nil
 }
 
@@ -459,7 +490,7 @@ func (asm *Assembler) setLabel(label string) error {
 		}
 		return nil
 	}
-	asm.l[label] = asm.p
+	asm.l[label] = uint16(asm.pc)
 	if asm.pass == 0 && asm.labelAssign[label] == "" {
 		asm.labelAssign[label] = asm.location()
 	}
