@@ -3,6 +3,7 @@ package z80asm
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"testing"
 )
@@ -253,9 +254,45 @@ func planeDiff(got, want []string, start, end int) error {
 	return nil
 }
 
+// getPlane returns a map of instructions with the given prefix.
+func getPlane(asm *Assembler, prefix []byte) []string {
+	result := make([]string, 256)
+	collisions := make([][]string, 256)
+	for cmd, asm := range asm.commandTable {
+		switch v := asm.(type) {
+		case commandAssembler:
+			for o, bs := range v.args {
+				if b, ok := getByte(prefix, bs); ok {
+					s := fmt.Sprintf("%s %s", cmd, o)
+					if o == void {
+						s = cmd
+					}
+					result[b] = s
+					collisions[b] = append(collisions[b], result[b])
+				}
+			}
+		}
+	}
+	failed := false
+	for i, c := range collisions {
+		if len(c) > 1 {
+			fmt.Printf("collisions at 0x%02x: %s\n", i, strings.Join(c, "; "))
+			failed = true
+		}
+	}
+	if failed {
+		log.Fatalf("found collisions!")
+	}
+	return result
+}
+
 func TestPlanes(t *testing.T) {
+	asm, err := NewAssembler(nil)
+	if err != nil {
+		t.Fatalf("failed to create assembler: %v", err)
+	}
 	for _, tc := range planeTestTables {
-		p := GetPlane(tc.prefix)
+		p := getPlane(asm, tc.prefix)
 		if err := planeDiff(p, tc.table, tc.start, tc.end); err != nil {
 			t.Errorf("Instructions for prefix %v differ:\n%v", tc.prefix, err)
 		}

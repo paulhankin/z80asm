@@ -11,18 +11,31 @@ import (
 	"text/scanner"
 )
 
+var baseCommandTable = map[string]instrAssembler{
+	"org": commandOrg{},
+	"db":  cmdData(const8),
+	"dw":  cmdData(const16),
+	"ds":  cmdData(argstring),
+}
+
+type commandAssembler struct {
+	cmd  string
+	args map[arg][]byte
+}
+
 // An Assembler can assemble Z80 instructions
 // into RAM.
 type Assembler struct {
-	opener      func(string) (io.ReadCloser, error)
-	pass        int
-	p           uint16
-	l           map[string]uint16
-	labelAssign map[string]string
-	m           []uint8
-	scan        *scanner.Scanner
-	scanErr     error
-	lastToken   token
+	commandTable map[string]instrAssembler
+	opener       func(string) (io.ReadCloser, error)
+	pass         int
+	p            uint16
+	l            map[string]uint16
+	labelAssign  map[string]string
+	m            []uint8
+	scan         *scanner.Scanner
+	scanErr      error
+	lastToken    token
 }
 
 func openFile(filename string) (io.ReadCloser, error) {
@@ -30,17 +43,56 @@ func openFile(filename string) (io.ReadCloser, error) {
 	return f, err
 }
 
+type AssemblerOpt func(*Assembler) error
+
+// AllowNextOpcodes include Z80N opcodes for the given core.
+func AllowNextOpcodes(core int) AssemblerOpt {
+	return func(a *Assembler) error {
+		if core < 3 || core > 3 {
+			return fmt.Errorf("only core 3 supported right now")
+		}
+		// TODO: add next commands to command table.
+		return nil
+	}
+}
+
 // NewAssembler constructs a new assembler with the given data as RAM.
-// By default, the assmebler will assemble code starting at address
+// By default, the assembler will assemble code starting at address
 // 0x8000.
-func NewAssembler(ram []uint8) (*Assembler, error) {
-	return &Assembler{
-		opener:      openFile,
-		p:           0x8000,
-		l:           make(map[string]uint16),
-		labelAssign: make(map[string]string),
-		m:           ram,
-	}, nil
+func NewAssembler(ram []uint8, opts ...AssemblerOpt) (*Assembler, error) {
+	cmdTable := make(map[string]instrAssembler)
+
+	for k, v := range baseCommandTable {
+		cmdTable[k] = v
+	}
+
+	for c0, bs := range commands0arg {
+		if _, ok := cmdTable[c0]; ok {
+			panic("duplicate command: " + c0)
+		}
+		cmdTable[c0] = commandAssembler{c0, map[arg][]byte{void: bs}}
+	}
+	for c0, os := range joinCommands(commandsArgs, ixCommands, iyCommands) {
+		if _, ok := cmdTable[c0]; ok {
+			panic("duplicate command: " + c0)
+		}
+		cmdTable[c0] = commandAssembler{c0, os}
+	}
+
+	a := &Assembler{
+		commandTable: cmdTable,
+		opener:       openFile,
+		p:            0x8000,
+		l:            make(map[string]uint16),
+		labelAssign:  make(map[string]string),
+		m:            ram,
+	}
+	for _, opt := range opts {
+		if err := opt(a); err != nil {
+			return nil, err
+		}
+	}
+	return a, nil
 }
 
 // AssembleFile reads the named file, and assembles it as z80
@@ -260,18 +312,6 @@ type instrAssembler interface {
 	W(a *Assembler) error
 }
 
-var commandTable = map[string]instrAssembler{
-	"org": commandOrg{},
-	"db":  cmdData(const8),
-	"dw":  cmdData(const16),
-	"ds":  cmdData(argstring),
-}
-
-type commandAssembler struct {
-	cmd  string
-	args map[arg][]byte
-}
-
 func (asm *Assembler) argsCompatible(vals []expr, a arg) ([]byte, bool, error) {
 	if len(vals) != argLen(a) {
 		return nil, false, nil
@@ -363,21 +403,6 @@ func joinCommands(cmdss ...map[string]args) map[string]args {
 	return r
 }
 
-func init() {
-	for c0, bs := range commands0arg {
-		if _, ok := commandTable[c0]; ok {
-			panic("duplicate command: " + c0)
-		}
-		commandTable[c0] = commandAssembler{c0, map[arg][]byte{void: bs}}
-	}
-	for c0, os := range joinCommands(commandsArgs, ixCommands, iyCommands) {
-		if _, ok := commandTable[c0]; ok {
-			panic("duplicate command: " + c0)
-		}
-		commandTable[c0] = commandAssembler{c0, os}
-	}
-}
-
 type commandOrg struct{}
 
 func (commandOrg) W(asm *Assembler) error {
@@ -404,7 +429,7 @@ func (commandOrg) W(asm *Assembler) error {
 
 func (asm *Assembler) assembleCommand(cmdOrig string) error {
 	cmd := strings.ToLower(cmdOrig)
-	if f, ok := commandTable[cmd]; ok {
+	if f, ok := asm.commandTable[cmd]; ok {
 		return f.W(asm)
 	}
 	return asm.scanErrorf("unknown command %v", cmdOrig)

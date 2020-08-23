@@ -3,7 +3,6 @@ package z80asm
 import (
 	"fmt"
 	"log"
-	"strings"
 )
 
 func b(x ...byte) []byte {
@@ -626,38 +625,6 @@ func replaceCommands(cmds map[string]args, rename map[arg]arg, prefix byte, excl
 			}
 			result[k][rnas] = append([]byte{prefix}, bs...)
 		}
-	}
-	return result
-}
-
-// GetPlane returns a map of instructions with the given prefix.
-func GetPlane(prefix []byte) []string {
-	result := make([]string, 256)
-	collisions := make([][]string, 256)
-	for cmd, asm := range commandTable {
-		switch v := asm.(type) {
-		case commandAssembler:
-			for o, bs := range v.args {
-				if b, ok := getByte(prefix, bs); ok {
-					s := fmt.Sprintf("%s %s", cmd, o)
-					if o == void {
-						s = cmd
-					}
-					result[b] = s
-					collisions[b] = append(collisions[b], result[b])
-				}
-			}
-		}
-	}
-	failed := false
-	for i, c := range collisions {
-		if len(c) > 1 {
-			fmt.Printf("collisions at 0x%02x: %s\n", i, strings.Join(c, "; "))
-			failed = true
-		}
-	}
-	if failed {
-		log.Fatalf("found collisions!")
 	}
 	return result
 }
