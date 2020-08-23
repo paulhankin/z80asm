@@ -332,9 +332,13 @@ func (ei exprIdent) getIntValue(asm *Assembler) (int64, bool, error) {
 	if ei.r != 0 || ei.cc != 0 {
 		return 0, false, nil
 	}
+	c, ok := asm.GetConst(ei.id)
+	if ok {
+		return int64(c), true, nil
+	}
 	i, ok := asm.GetLabel(ei.id)
 	if asm.pass > 0 && !ok {
-		return 0, false, asm.scanErrorf("unknown label %q", ei.id)
+		return 0, false, asm.scanErrorf("unknown const or label %q", ei.id)
 	}
 	return int64(i), true, nil
 }

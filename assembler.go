@@ -12,10 +12,11 @@ import (
 )
 
 var baseCommandTable = map[string]instrAssembler{
-	"org": commandOrg{},
-	"db":  cmdData(const8),
-	"dw":  cmdData(const16),
-	"ds":  cmdData(argstring),
+	"org":   commandOrg{},
+	"db":    cmdData(const8),
+	"dw":    cmdData(const16),
+	"ds":    cmdData(argstring),
+	"const": commandConst{},
 }
 
 type commandAssembler struct {
@@ -32,6 +33,7 @@ type Assembler struct {
 	pc           int // The PC from the point of view of the code
 	target       int // Where in the total memory the code is written
 	l            map[string]uint16
+	consts       map[string]int64
 	labelAssign  map[string]string
 	m            []uint8
 	scan         *scanner.Scanner
@@ -107,6 +109,7 @@ func NewAssembler(opts ...AssemblerOpt) (*Assembler, error) {
 		pc:           0x8000,
 		target:       0x8000,
 		l:            make(map[string]uint16),
+		consts:       make(map[string]int64),
 		labelAssign:  make(map[string]string),
 		m:            make([]uint8, 64*1024),
 	}
@@ -316,6 +319,13 @@ func (asm *Assembler) GetLabel(l string) (uint16, bool) {
 	return v, ok
 }
 
+// GetConst returns the value of the given const.
+// It is only valid after the assembler has run.
+func (asm *Assembler) GetConst(c string) (int64, bool) {
+	v, ok := asm.consts[c]
+	return v, ok
+}
+
 type cmdData arg
 
 func (n cmdData) W(asm *Assembler) error {
@@ -431,6 +441,47 @@ func joinCommands(cmdss ...map[string]args) map[string]args {
 		}
 	}
 	return r
+}
+
+type commandConst struct{}
+
+func getIdent(e expr) (string, error) {
+	switch v := e.(type) {
+	case exprIdent:
+		if v.cc != 0 || v.r != 0 {
+			return "", fmt.Errorf("expected identifier, got register or condition code")
+		}
+		return v.id, nil
+	}
+	return "", fmt.Errorf("expected identifier, got %v", e)
+}
+
+func (commandConst) W(asm *Assembler) error {
+	args, err := asm.parseSepArgs('=', false)
+	if err != nil {
+		return err
+	}
+	if len(args) != 2 {
+		return asm.scanErrorf("expected syntax: const <ident> = <value>, got: const %v", args)
+	}
+	name, err := getIdent(args[0])
+	if err != nil {
+		return err
+	}
+	n, ok, err := getIntValue(asm, args[1])
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return asm.scanErrorf("failed to evaluate const %q value %q", name, args[1])
+	}
+	if asm.pass == 0 {
+		if _, ok := asm.consts[name]; ok {
+			return asm.scanErrorf("redefining %q", name)
+		}
+		asm.consts[name] = n
+	}
+	return nil
 }
 
 type commandOrg struct{}

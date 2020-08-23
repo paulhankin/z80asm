@@ -213,6 +213,10 @@ func (a *Assembler) parseExpression(pri int, emptyOK bool) (expr, token, error) 
 }
 
 func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
+	return a.parseSepArgs(',', trailingOK)
+}
+
+func (a *Assembler) parseSepArgs(sep rune, trailingOK bool) ([]expr, error) {
 	var r []expr
 	comma := false
 	for {
@@ -224,15 +228,16 @@ func (a *Assembler) parseArgs(trailingOK bool) ([]expr, error) {
 			comma = false
 			r = append(r, e)
 		}
+		if tok.t == sep {
+			comma = true
+			continue
+		}
 		switch tok.t {
 		case ';', '\n', scanner.EOF:
 			if comma && !trailingOK {
-				return nil, a.scanErrorf("unexpected trailing ,")
+				return nil, a.scanErrorf("unexpected trailing %c", sep)
 			}
 			return r, nil
-		case ',':
-			comma = true
-			continue
 		default:
 			return nil, a.scanErrorf("unexpected %s", tok)
 		}
