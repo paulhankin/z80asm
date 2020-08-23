@@ -245,9 +245,9 @@ func indRegGetReg(a arg) arg {
 		return regDE
 	case indSP:
 		return regSP
-	case indIXplus:
+	case indIX, indIXplus:
 		return regIX
-	case indIYplus:
+	case indIY, indIYplus:
 		return regIY
 	}
 	log.Fatalf("passed %s to indRegGetReg", a)

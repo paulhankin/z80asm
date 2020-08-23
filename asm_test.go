@@ -28,10 +28,10 @@ func toHex(bs []byte) string {
 	return strings.Join(r, " ")
 }
 
-func testFailureSnippet(t *testing.T, fs ffs, mustContain string) {
+func testFailureSnippet(t *testing.T, nextCore int, fs ffs, mustContain string) {
 	desc := fs["a.asm"]
 	ram := make([]byte, 65536)
-	asm, err := NewAssembler(ram)
+	asm, err := NewAssembler(ram, UseNextCore(nextCore))
 	if err != nil {
 		t.Fatalf("%q: failed to create assembler: %v", desc, err)
 	}
@@ -46,16 +46,16 @@ func testFailureSnippet(t *testing.T, fs ffs, mustContain string) {
 	}
 }
 
-func testSnippet(t *testing.T, org int, fs ffs, want []byte) {
+func testSnippet(t *testing.T, nextCore, org int, fs ffs, want []byte) {
 	desc := fs["a.asm"]
 	ram := make([]byte, 65536)
-	asm, err := NewAssembler(ram, UseNextCore(3))
+	asm, err := NewAssembler(ram, UseNextCore(nextCore))
 	if err != nil {
 		t.Fatalf("%q: failed to create assembler: %v", desc, err)
 	}
 	asm.opener = fs.open
 	if err := asm.AssembleFile("a.asm"); err != nil {
-		t.Errorf("%q: assembler produced error: %v", desc, err)
+		t.Errorf("%q: assembler with nextCore=%d produced error: %v", desc, nextCore, err)
 		return
 	}
 	for i := 0; i < 65536; i++ {
@@ -66,14 +66,15 @@ func testSnippet(t *testing.T, org int, fs ffs, want []byte) {
 		}
 	}
 	if got := ram[org : org+len(want)]; !reflect.DeepEqual(got, want) {
-		t.Errorf("%q: assembled at %04x\ngot:\n%s\nwant:\n%s", desc, org, toHex(got), toHex(want))
+		t.Errorf("%q: assembled with nextCore=%d at %04x\ngot:\n%s\nwant:\n%s", desc, nextCore, org, toHex(got), toHex(want))
 	}
 }
 
 func TestAsmSnippets(t *testing.T) {
 	testcases := []struct {
-		fs   ffs
-		want []byte
+		fs       ffs
+		nextCore int
+		want     []byte
 	}{
 		{
 			fs: ffs{
@@ -214,9 +215,65 @@ func TestAsmSnippets(t *testing.T) {
 			},
 			want: []byte{0xdd, 0xcb, 0, 0x8e, 0xfd, 0xcb, 0, 0x8e},
 		},
+
+		{
+			nextCore: 1,
+			fs: ffs{
+				"a.asm": "ldix; ldws; ldirx; lddx; lddrx; ldpirx",
+			},
+			want: []byte{0xed, 0xa4, 0xed, 0xa5, 0xed, 0xb4, 0xed, 0xac, 0xed, 0xbc, 0xed, 0xb7},
+		},
+		{
+			nextCore: 1,
+			fs: ffs{
+				"a.asm": "outinb; mul d, e; add hl, a; add de, a; add bc, a",
+			},
+			want: []byte{0xed, 0x90, 0xed, 0x30, 0xed, 0x31, 0xed, 0x32, 0xed, 0x33},
+		},
+		{
+			nextCore: 1,
+			fs: ffs{
+				"a.asm": "add hl, 0xa823; add de, 0x0102; add bc, 0x6543",
+			},
+			want: []byte{0xed, 0x34, 0x23, 0xa8, 0xed, 0x35, 0x02, 0x01, 0xed, 0x36, 0x43, 0x65},
+		},
+		{
+			nextCore: 1,
+			fs: ffs{
+				"a.asm": "swapnib; mirror a; pixeldn; pixelad; setae",
+			},
+			want: []byte{0xed, 0x23, 0xed, 0x24, 0xed, 0x93, 0xed, 0x94, 0xed, 0x95},
+		},
+		{
+			nextCore: 1,
+			fs: ffs{
+				"a.asm": "push 0xabcd; test 0x5a",
+			},
+			want: []byte{0xed, 0x8a, 0xab, 0xcd, 0xed, 0x27, 0x5a},
+		},
+		{
+			nextCore: 1,
+			fs: ffs{
+				"a.asm": "nextreg 0xab, 0x42; nextreg 0xfa, a",
+			},
+			want: []byte{0xed, 0x91, 0xab, 0x42, 0xed, 0x92, 0xfa},
+		},
+		{
+			nextCore: 2,
+			fs: ffs{
+				"a.asm": "bsla de, b; bsra de, b; bsrl de, b; bsrf de, b; brlc de, b; jp (c)",
+			},
+			want: []byte{0xed, 0x28, 0xed, 0x29, 0xed, 0x2a, 0xed, 0x2b, 0xed, 0x2c, 0xed, 0x98},
+		},
 	}
 	for _, tc := range testcases {
-		testSnippet(t, 0x8000, tc.fs, tc.want)
+		for c := 0; c < 3; c++ {
+			if c >= tc.nextCore {
+				testSnippet(t, c, 0x8000, tc.fs, tc.want)
+			} else {
+				testFailureSnippet(t, c, tc.fs, "")
+			}
+		}
 	}
 }
 
@@ -342,7 +399,7 @@ func TestParseErrors(t *testing.T) {
 		{"ld z, (1+2)+3", "1 + 2 + 3"},
 	}
 	for _, tc := range testCases {
-		testFailureSnippet(t, ffs{"a.asm": tc.asm}, tc.wantErr)
+		testFailureSnippet(t, 0, ffs{"a.asm": tc.asm}, tc.wantErr)
 	}
 }
 
@@ -413,6 +470,6 @@ func TestIntExpressions(t *testing.T) {
 			"a.asm": fmt.Sprintf("org 0x6000 ; .label ld hl, %s", tc.expr),
 		}
 		want := b(0x21, byte(tc.want%256), byte(tc.want/256))
-		testSnippet(t, 0x6000, fs, want)
+		testSnippet(t, 0, 0x6000, fs, want)
 	}
 }
