@@ -43,15 +43,16 @@ func openFile(filename string) (io.ReadCloser, error) {
 	return f, err
 }
 
-type AssemblerOpt func(*Assembler) error
+type assemblerOption struct {
+	nextCore int
+}
 
-// AllowNextOpcodes include Z80N opcodes for the given core.
-func AllowNextOpcodes(core int) AssemblerOpt {
-	return func(a *Assembler) error {
-		if core < 3 || core > 3 {
-			return fmt.Errorf("only core 3 supported right now")
-		}
-		// TODO: add next commands to command table.
+type AssemblerOpt func(*assemblerOption) error
+
+// UseNextCore include Z80N opcodes for the given core.
+func UseNextCore(core int) AssemblerOpt {
+	return func(a *assemblerOption) error {
+		a.nextCore = core
 		return nil
 	}
 }
@@ -60,19 +61,39 @@ func AllowNextOpcodes(core int) AssemblerOpt {
 // By default, the assembler will assemble code starting at address
 // 0x8000.
 func NewAssembler(ram []uint8, opts ...AssemblerOpt) (*Assembler, error) {
-	cmdTable := make(map[string]instrAssembler)
+	var aopt assemblerOption
+	for _, opt := range opts {
+		if err := opt(&aopt); err != nil {
+			return nil, err
+		}
+	}
 
+	cmdTable := make(map[string]instrAssembler)
 	for k, v := range baseCommandTable {
 		cmdTable[k] = v
 	}
 
-	for c0, bs := range commands0arg {
-		if _, ok := cmdTable[c0]; ok {
-			panic("duplicate command: " + c0)
-		}
-		cmdTable[c0] = commandAssembler{c0, map[arg][]byte{void: bs}}
+	cmd0s := []map[string][]byte{commands0arg}
+	cmds := []map[string]args{commandsArgs, ixCommands, iyCommands}
+
+	if aopt.nextCore > 0 {
+		cmd0s = append(cmd0s, commands0argNext1)
+		cmds = append(cmds, commandsArgsNext1)
 	}
-	for c0, os := range joinCommands(commandsArgs, ixCommands, iyCommands) {
+	if aopt.nextCore > 1 {
+		cmds = append(cmds, commandsArgsNext2)
+	}
+
+	for _, c0a := range cmd0s {
+		for c0, bs := range c0a {
+			if _, ok := cmdTable[c0]; ok {
+				panic("duplicate command: " + c0)
+			}
+			cmdTable[c0] = commandAssembler{c0, map[arg][]byte{void: bs}}
+		}
+	}
+
+	for c0, os := range joinCommands(cmds...) {
 		if _, ok := cmdTable[c0]; ok {
 			panic("duplicate command: " + c0)
 		}
@@ -86,11 +107,6 @@ func NewAssembler(ram []uint8, opts ...AssemblerOpt) (*Assembler, error) {
 		l:            make(map[string]uint16),
 		labelAssign:  make(map[string]string),
 		m:            ram,
-	}
-	for _, opt := range opts {
-		if err := opt(a); err != nil {
-			return nil, err
-		}
 	}
 	return a, nil
 }

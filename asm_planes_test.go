@@ -63,6 +63,82 @@ var (
 		"lddr", "cpdr", "indr", "otdr", "", "", "", "",
 	}
 
+	extendedPlaneTableNext1 = []string{
+		"", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "",
+
+		"", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "",
+
+		"", "", "", "swapnib", "mirror a", "", "", "test *",
+		"", "", "", "", "", "", "", "",
+
+		"mul d, e", "add hl, a", "add de, a", "add bc, a", "add hl, **", "add de, **", "add bc, **", "",
+		"", "", "", "", "", "", "", "",
+
+		"in b, (c)", "out (c), b", "sbc hl, bc", "ld (**), bc", "neg", "retn", "im 0", "ld i, a",
+		"in c, (c)", "out (c), c", "adc hl, bc", "ld bc, (**)", "?neg", "reti", "?im 0/1", "ld r, a",
+
+		"in d, (c)", "out (c), d", "sbc hl, de", "ld (**), de", "?neg", "?retn", "im 1", "ld a, i",
+		"in e, (c)", "out (c), e", "adc hl, de", "ld de, (**)", "?neg", "?retn", "im 2", "ld a, r",
+
+		"in h, (c)", "out (c), h", "sbc hl, hl", "?ld (**), hl", "?neg", "?retn", "?im 0", "rrd",
+		"in l, (c)", "out (c), l", "adc hl, hl", "?ld hl, (**)", "?neg", "?retn", "?im 0/1", "rld",
+
+		"?in (c)", "?out (c), 0", "sbc hl, sp", "ld (**), sp", "?neg", "?retn", "?im 1", "",
+		"in a, (c)", "out (c), a", "adc hl, sp", "ld sp, (**)", "?neg", "?retn", "?im 2", "",
+
+		"", "", "", "", "", "", "", "",
+		"", "", "push **", "", "", "", "", "",
+
+		"outinb", "nextreg *, *", "nextreg *, a", "pixeldn", "pixelad", "setae", "", "",
+		"", "", "", "", "", "", "", "",
+
+		"ldi", "cpi", "ini", "outi", "ldix", "ldws", "", "",
+		"ldd", "cpd", "ind", "outd", "lddx", "", "", "",
+
+		"ldir", "cpir", "inir", "otir", "ldirx", "", "", "ldpirx",
+		"lddr", "cpdr", "indr", "otdr", "lddrx", "", "", "",
+	}
+
+	extendedPlaneTableNext2 = []string{
+		"", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "",
+
+		"", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "",
+
+		"", "", "", "swapnib", "mirror a", "", "", "test *",
+		"bsla de, b", "bsra de, b", "bsrl de, b", "bsrf de, b", "brlc de, b", "", "", "",
+
+		"mul d, e", "add hl, a", "add de, a", "add bc, a", "add hl, **", "add de, **", "add bc, **", "",
+		"", "", "", "", "", "", "", "",
+
+		"in b, (c)", "out (c), b", "sbc hl, bc", "ld (**), bc", "neg", "retn", "im 0", "ld i, a",
+		"in c, (c)", "out (c), c", "adc hl, bc", "ld bc, (**)", "?neg", "reti", "?im 0/1", "ld r, a",
+
+		"in d, (c)", "out (c), d", "sbc hl, de", "ld (**), de", "?neg", "?retn", "im 1", "ld a, i",
+		"in e, (c)", "out (c), e", "adc hl, de", "ld de, (**)", "?neg", "?retn", "im 2", "ld a, r",
+
+		"in h, (c)", "out (c), h", "sbc hl, hl", "?ld (**), hl", "?neg", "?retn", "?im 0", "rrd",
+		"in l, (c)", "out (c), l", "adc hl, hl", "?ld hl, (**)", "?neg", "?retn", "?im 0/1", "rld",
+
+		"?in (c)", "?out (c), 0", "sbc hl, sp", "ld (**), sp", "?neg", "?retn", "?im 1", "",
+		"in a, (c)", "out (c), a", "adc hl, sp", "ld sp, (**)", "?neg", "?retn", "?im 2", "",
+
+		"", "", "", "", "", "", "", "",
+		"", "", "push **", "", "", "", "", "",
+
+		"outinb", "nextreg *, *", "nextreg *, a", "pixeldn", "pixelad", "setae", "", "",
+		"jp (c)", "", "", "", "", "", "", "",
+
+		"ldi", "cpi", "ini", "outi", "ldix", "ldws", "", "",
+		"ldd", "cpd", "ind", "outd", "lddx", "", "", "",
+
+		"ldir", "cpir", "inir", "otir", "ldirx", "", "", "ldpirx",
+		"lddr", "cpdr", "indr", "otdr", "lddrx", "", "", "",
+	}
+
 	bitPlaneTable = []string{
 		"rlc b", "rlc c", "rlc d", "rlc e", "rlc h", "rlc l", "rlc (hl)", "rlc a",
 		"rrc b", "rrc c", "rrc d", "rrc e", "rrc h", "rrc l", "rrc (hl)", "rrc a",
@@ -173,6 +249,8 @@ var (
 )
 
 var planeTestTables = []struct {
+	selective  bool
+	nextCore   int
 	prefix     []byte
 	table      []string
 	start, end int
@@ -181,10 +259,25 @@ var planeTestTables = []struct {
 		table: basicPlaneTable,
 	},
 	{
-		prefix: []byte{0xed},
-		table:  extendedPlaneTable,
-		start:  0x40,
-		end:    0xc0,
+		selective: true,
+		prefix:    []byte{0xed},
+		table:     extendedPlaneTable,
+		start:     0x40,
+		end:       0xc0,
+	},
+	{
+		selective: true,
+		nextCore:  1,
+		prefix:    []byte{0xed},
+		table:     extendedPlaneTableNext1,
+		end:       0xc0,
+	},
+	{
+		selective: true,
+		nextCore:  2,
+		prefix:    []byte{0xed},
+		table:     extendedPlaneTableNext2,
+		end:       0xc0,
 	},
 	{
 		prefix: []byte{0xcb},
@@ -287,14 +380,25 @@ func getPlane(asm *Assembler, prefix []byte) []string {
 }
 
 func TestPlanes(t *testing.T) {
-	asm, err := NewAssembler(nil)
+	asm0, err := NewAssembler(nil)
+	asm1, err := NewAssembler(nil, UseNextCore(1))
+	asm2, err := NewAssembler(nil, UseNextCore(2))
+
+	asms := []*Assembler{asm0, asm1, asm2}
+	names := []string{"z80", "z80n core 1", "z80n core 2"}
+
 	if err != nil {
 		t.Fatalf("failed to create assembler: %v", err)
 	}
 	for _, tc := range planeTestTables {
-		p := getPlane(asm, tc.prefix)
-		if err := planeDiff(p, tc.table, tc.start, tc.end); err != nil {
-			t.Errorf("Instructions for prefix %v differ:\n%v", tc.prefix, err)
+		for coreIdx, asm := range asms {
+			if tc.selective && coreIdx != tc.nextCore {
+				continue
+			}
+			p := getPlane(asm, tc.prefix)
+			if err := planeDiff(p, tc.table, tc.start, tc.end); err != nil {
+				t.Errorf("core %q: instructions for prefix %v differ:\n%v", names[coreIdx], tc.prefix, err)
+			}
 		}
 	}
 }

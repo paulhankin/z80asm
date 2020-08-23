@@ -255,8 +255,8 @@ var commands0arg = map[string][]byte{
 	"rld":  b(0xed, 0x6f),
 }
 
-// extra commands0arg for Z80N on the spectrum next.
-var commands0argNext = map[string][]byte{
+// extra commands0arg for Z80N on the spectrum next (core 1+)
+var commands0argNext1 = map[string][]byte{
 	"ldix":    b(0xed, 0xa4),
 	"ldws":    b(0xed, 0xa5),
 	"ldirx":   b(0xed, 0xb4),
@@ -266,7 +266,7 @@ var commands0argNext = map[string][]byte{
 	"outinb":  b(0xed, 0x90),
 	"swapnib": b(0xed, 0x23),
 	"pixeldn": b(0xed, 0x93),
-	"pixelan": b(0xed, 0x94),
+	"pixelad": b(0xed, 0x94),
 	"setae":   b(0xed, 0x95),
 }
 
@@ -551,7 +551,10 @@ var commandsArgs = map[string]args{
 	},
 }
 
-var commandsArgsNext = map[string]args{
+var commandsArgsNext1 = map[string]args{
+	"mul": args{
+		arg2(regD, regE): b(0xed, 0x30),
+	},
 	"add": args{
 		arg2(regHL, regA):    b(0xed, 0x31),
 		arg2(regDE, regA):    b(0xed, 0x32),
@@ -560,8 +563,39 @@ var commandsArgsNext = map[string]args{
 		arg2(regDE, const16): b(0xed, 0x35),
 		arg2(regBC, const16): b(0xed, 0x36),
 	},
+	"mirror": args{
+		regA: b(0xed, 0x24),
+	},
 	"push": args{
 		const16be: b(0xed, 0x8a),
+	},
+	"nextreg": args{
+		arg2(const8, const8): b(0xed, 0x91),
+		arg2(const8, regA):   b(0xed, 0x92),
+	},
+	"test": args{
+		const8: b(0xed, 0x27),
+	},
+}
+
+var commandsArgsNext2 = map[string]args{
+	"bsla": args{
+		arg2(regDE, regB): b(0xed, 0x28),
+	},
+	"bsra": args{
+		arg2(regDE, regB): b(0xed, 0x29),
+	},
+	"bsrl": args{
+		arg2(regDE, regB): b(0xed, 0x2a),
+	},
+	"bsrf": args{
+		arg2(regDE, regB): b(0xed, 0x2b),
+	},
+	"brlc": args{
+		arg2(regDE, regB): b(0xed, 0x2c),
+	},
+	"jp": args{
+		portC: b(0xed, 0x98),
 	},
 }
 

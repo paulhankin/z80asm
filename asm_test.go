@@ -49,7 +49,7 @@ func testFailureSnippet(t *testing.T, fs ffs, mustContain string) {
 func testSnippet(t *testing.T, org int, fs ffs, want []byte) {
 	desc := fs["a.asm"]
 	ram := make([]byte, 65536)
-	asm, err := NewAssembler(ram)
+	asm, err := NewAssembler(ram, UseNextCore(3))
 	if err != nil {
 		t.Fatalf("%q: failed to create assembler: %v", desc, err)
 	}
