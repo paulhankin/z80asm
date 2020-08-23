@@ -22,7 +22,15 @@ import (
 var (
 	outFile = flag.String("o", "", "the sna filename to output")
 	help    = flag.Bool("help", false, "show usage information about this command.")
+	cpu     = flag.String("cpu", "z80", "which cpu to use: z80, z80n1, z80n=z80n2")
 )
+
+var asmOpts = map[string][]z80asm.AssemblerOpt{
+	"z80":   nil,
+	"z80n":  []z80asm.AssemblerOpt{z80asm.UseNextCore(2)},
+	"z80n2": []z80asm.AssemblerOpt{z80asm.UseNextCore(2)},
+	"z80n1": []z80asm.AssemblerOpt{z80asm.UseNextCore(1)},
+}
 
 func pf(f string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, f, args...)
@@ -48,8 +56,13 @@ func main() {
 		pf("ERROR: too many command-line arguments: %s\n\n", os.Args[1:])
 		usage()
 	}
+	aopts, ok := asmOpts[*cpu]
+	if !ok {
+		pf("ERROR: unrecognized cpu: %q\n", *cpu)
+		usage()
+	}
 	m := z80asm.NewMachine()
-	asm, err := z80asm.NewAssembler(m.RAM[:])
+	asm, err := z80asm.NewAssembler(m.RAM[:], aopts...)
 	if err != nil {
 		pf("%s\n", err)
 		os.Exit(1)
