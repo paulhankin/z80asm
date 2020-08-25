@@ -36,9 +36,12 @@ type Assembler struct {
 	l            map[string]uint16
 	consts       map[string]int64
 	constsDef    map[string]bool
-	labelAssign  map[string]string
-	m            []uint8
 
+	currentMajorLabel string
+	labelAssign       map[string]string
+	m                 []uint8
+
+	// These are stacks, used when we "include" another file.
 	scanners  []*scanner.Scanner
 	closers   []io.Closer
 	openFiles []string // to avoid recursive includes
