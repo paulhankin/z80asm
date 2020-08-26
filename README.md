@@ -42,12 +42,23 @@ Comments use `//` or `/* ... */` (which don't nest). For example, this code gene
     ld b, 42 */
     ld a, (de) // This is a comment
 
-Labels are written as a dot followed by a name, and must appear at the start of a line. For example:
+Labels are written in one of two forms: a name followed by a colon, or a dot followed by a name. The `label:` form denotes a major label, and the `.label` form denotes a minor label. Minor labels are relative to the most recent major label, and can only be accessed in that scope. This allows minor labels to be reused.
 
-    .label
-      djnz label
+For example:
 
-A special label `.main` defines the entrypoint for the code.
+    f:
+        ld bc, 42
+    .loop
+        djnz loop
+    g:
+        ld bc, 102
+    .loop
+        djnz loop
+
+This defines two major labels `f` and `g` and two minor labels, both called
+`loop`.
+
+A special label `main:` defines the entrypoint for the code.
 
 Where applicable, constants may be expressions written in C (or equivalently go) syntax. For example:
 
