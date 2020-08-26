@@ -7,13 +7,33 @@ import (
 	"fmt"
 	"log"
 	"os"
-
-	"github.com/paulhankin/z80asm"
 )
+
+// A SNAMachine describes the machine state
+// of a 48k ZX Spectrum. Except for the ROM.
+type SNAMachine struct {
+	AF, BC, DE, HL, IX, IY uint16
+	AF2, BC2, DE2, HL2     uint16
+	SP                     uint16
+	PC                     uint16
+	I                      uint8
+	R                      uint8
+	IntEnabled             bool
+	IntMode                uint8 // 0, 1 or 2.
+	BorderColor            uint8 // 0 to 7.
+	RAM                    []uint8
+}
+
+// NewSNAMachine returns a newly initialised SNAMachine.
+func NewSNAMachine(RAM []uint8) (*SNAMachine, error) {
+	return &SNAMachine{
+		RAM: RAM,
+	}, nil
+}
 
 // SaveSNA writes the given machine to the named file.
 // The documentation for WriteSNA contains more information.
-func SaveSNA(filename string, m *z80asm.Machine) error {
+func SaveSNA(filename string, m *SNAMachine) error {
 	f, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %v", err)
@@ -31,7 +51,7 @@ func SaveSNA(filename string, m *z80asm.Machine) error {
 	return nil
 }
 
-func pushpc(m *z80asm.Machine) func() {
+func pushpc(m *SNAMachine) func() {
 	m.SP -= 1
 	oldH := m.RAM[m.SP]
 	m.RAM[m.SP] = uint8(m.PC >> 8)
@@ -54,9 +74,9 @@ func pushpc(m *z80asm.Machine) func() {
 // Thus the written SP, and the two bytes of RAM before
 // the given SP will not be the same as in the machine
 // image.
-// The Machine is modified during saving, but it restored
+// The SNAMachine is modified during saving, but it restored
 // before the function returns.
-func WriteSNA(f *bufio.Writer, m *z80asm.Machine) error {
+func WriteSNA(f *bufio.Writer, m *SNAMachine) error {
 	var writeErr error
 
 	undo := pushpc(m)

@@ -10,89 +10,12 @@
 package main
 
 import (
-	"flag"
-	"fmt"
 	"os"
-	"path"
 
-	"github.com/paulhankin/z80asm"
-	"github.com/paulhankin/z80asm/z80io"
+	"github.com/paulhankin/z80asm/cmd/z80asm/z80asmlib"
 )
-
-var (
-	outFile = flag.String("o", "", "the sna filename to output")
-	help    = flag.Bool("help", false, "show usage information about this command.")
-	cpu     = flag.String("cpu", "z80", "which cpu to use: z80, z80n1, z80n=z80n2")
-)
-
-var asmOpts = map[string][]z80asm.AssemblerOpt{
-	"z80":   nil,
-	"z80n":  []z80asm.AssemblerOpt{z80asm.UseNextCore(2)},
-	"z80n2": []z80asm.AssemblerOpt{z80asm.UseNextCore(2)},
-	"z80n1": []z80asm.AssemblerOpt{z80asm.UseNextCore(1)},
-}
-
-func pf(f string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, f, args...)
-}
-
-func usage() {
-	pf("%s is a z80 assembler, which writes ZX Spectrum .sna files\n\n", os.Args[0])
-	pf("Usage:\n\n")
-	pf("%s <filename>: file to assemble\n", os.Args[0])
-	flag.PrintDefaults()
-	os.Exit(2)
-}
 
 func main() {
-	flag.Parse()
-	if *help {
-		usage()
-	}
-	if len(os.Args) == 1 {
-		usage()
-	}
-	if len(os.Args) > 2 {
-		pf("ERROR: too many command-line arguments: %s\n\n", os.Args[1:])
-		usage()
-	}
-	aopts, ok := asmOpts[*cpu]
-	if !ok {
-		pf("ERROR: unrecognized cpu: %q\n", *cpu)
-		usage()
-	}
-	asm, err := z80asm.NewAssembler(aopts...)
-	if err != nil {
-		pf("%s\n", err)
-		os.Exit(1)
-	}
-	if err := asm.AssembleFile(os.Args[1]); err != nil {
-		pf("%s\n", err)
-		os.Exit(1)
-	}
-
-	m, err := z80asm.NewMachine(asm.RAM())
-	if err != nil {
-		pf("%s\n", err)
-		os.Exit(1)
-	}
-
-	value, ok := asm.GetLabel("main")
-	if !ok {
-		pf("ERROR: missing .main entrypoint in %s\n", os.Args[1:])
-		os.Exit(3)
-	}
-	m.PC = value
-
-	out := *outFile
-	if out == "" {
-		dir, base := path.Split(os.Args[1])
-		ext := path.Ext(os.Args[1])
-		out = path.Join(dir, base[:len(base)-len(ext)]+".sna")
-	}
-
-	if err := z80io.SaveSNA(out, m); err != nil {
-		pf("failed to write .sna file %s: %v\n", out, err)
-		os.Exit(3)
-	}
+	opts := z80asmlib.OptionsFromFlags(os.Args)
+	os.Exit(z80asmlib.Main(opts))
 }
