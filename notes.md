@@ -1,51 +1,6 @@
 Notes
 =====
 
-Labels
-------
-
-Idea 1, labels could be of two forms:
-
-  * `label:` a major label
-  * `.label` a minor label
-
-Dot labels should be named relative to the previous major label, and using a dotted name implicitly prepends the most recent major label.
-
-So:
-
-    f:
-    .j djnz .j
-
-Is equivalent to:
-
-    f:
-    f.j: djnz f.j
-
-
-Alternatives:
-
-    .label
-    ..sublabel
-    ...subsublabel
-
-or:
-
-    label:
-    .sublabel:
-    ..subsublabel:
-
-or:
-
-use `{}` to delimit scopes.
-
-    f: {
-        j: djnz j
-    }
-
-Here there would be no way to refer to the inner `j` label from outside. Inside a scope, labels would be searched from the inside out.
-
-Use of `{}` could also allow namespaces, local consts and so on, and be used for meta constructs like `if` and `macro` and so on.
-
 
 Consts and labels
 -----------------
@@ -96,3 +51,61 @@ This format seems natural:
 Like C or Go, there can be 0 or more `else if` and 0 or 1 `else`.
 
 The problem here is that if `{}` defines scopes for labels, then there's no way for labels to escape.
+
+
+RESOLVED
+========
+
+Labels
+------
+
+> Decision: `label:` and `.sublabel` to define labels.
+> 
+> Sublabels are named relative to the last major label. The use of a name `x`
+> refers to the sublabel if possible, otherwise to a major label.
+> 
+> There's no way to use anything other than the terminal part, like
+> `label.sublabel` or just `.sublabel` at the moment.
+
+
+Idea 1, labels could be of two forms:
+
+  * `label:` a major label
+  * `.label` a minor label
+
+Dot labels should be named relative to the previous major label, and using a dotted name implicitly prepends the most recent major label.
+
+So:
+
+    f:
+    .j djnz .j
+
+Is equivalent to:
+
+    f:
+    f.j: djnz f.j
+
+
+Alternatives:
+
+    .label
+    ..sublabel
+    ...subsublabel
+
+or:
+
+    label:
+    .sublabel:
+    ..subsublabel:
+
+or:
+
+use `{}` to delimit scopes.
+
+    f: {
+        j: djnz j
+    }
+
+Here there would be no way to refer to the inner `j` label from outside. Inside a scope, labels would be searched from the inside out.
+
+Use of `{}` could also allow namespaces, local consts and so on, and be used for meta constructs like `if` and `macro` and so on.
