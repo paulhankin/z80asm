@@ -113,6 +113,18 @@ func TestAsmSnippets(t *testing.T) {
 		},
 		{
 			fs: ffs{
+				"a.asm": "label: ld hl, label",
+			},
+			want: b(0x21, 0x00, 0x80),
+		},
+		{
+			fs: ffs{
+				"a.asm": "label: .xx ld hl, xx; label2: .xx ld hl, xx",
+			},
+			want: b(0x21, 0x00, 0x80, 0x21, 0x03, 0x80),
+		},
+		{
+			fs: ffs{
 				"a.asm": ".label push bc; jr label",
 			},
 			want: b(0xc5, 0x18, 0xfd),
@@ -416,7 +428,8 @@ func TestParseErrors(t *testing.T) {
 		{"ld hl, 6%(4-4)", "zero"},
 		{"db 256", "not in the range"},
 		{"dw 65536", "not in the range"},
-		{".label ld hl, 42 ; .label ld bc, 42", "label \"label\" redefined"},
+		{"label: ld hl, 42 ; label: ld bc, 42", "label \"label\" redefined"},
+		{"a: .label ld hl, 42 ; .label: ld bc, 42", "label \"a.label\" redefined"},
 		{"ld z, (1+2)", "(1 + 2)"},
 		{"ld z, 1+(2*3)", "1 + 2 * 3"},
 		{"ld z, 1*(2+3)", "1 * (2 + 3)"},

@@ -339,7 +339,7 @@ func (ei exprIdent) getIntValue(asm *Assembler) (int64, bool, error) {
 	if ok {
 		return int64(c), true, nil
 	}
-	i, ok := asm.GetLabel(ei.id)
+	i, ok := asm.GetLabel(asm.currentMajorLabel, ei.id)
 	if asm.pass > 0 && !ok {
 		return 0, false, asm.scanErrorf("unknown const or label %q", ei.id)
 	}

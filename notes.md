@@ -21,7 +21,22 @@ Is equivalent to:
     f:
     f.j: djnz f.j
 
-An alternative would be to use `{}` to delimit scopes.
+
+Alternatives:
+
+    .label
+    ..sublabel
+    ...subsublabel
+
+or:
+
+    label:
+    .sublabel:
+    ..subsublabel:
+
+or:
+
+use `{}` to delimit scopes.
 
     f: {
         j: djnz j
@@ -80,3 +95,4 @@ This format seems natural:
 
 Like C or Go, there can be 0 or more `else if` and 0 or 1 `else`.
 
+The problem here is that if `{}` defines scopes for labels, then there's no way for labels to escape.

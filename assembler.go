@@ -143,6 +143,7 @@ func (asm *Assembler) AssembleFile(filename string) error {
 		asm.pc = pc
 		asm.target = target
 		asm.pass = pass
+		asm.currentMajorLabel = ""
 		// Reset the map that says whether we've seen a const.
 		// We use this to prevent use of const before definition.
 		asm.constsDef = make(map[string]bool)
@@ -320,15 +321,33 @@ func (asm *Assembler) assemble() error {
 				return nil
 			}
 		case scanner.Ident:
-			if err := asm.assembleCommand(tok.s); err != nil {
+			// Might be a command
+			if f, ok := asm.commandTable[strings.ToLower(tok.s)]; ok {
+				if err := f.W(asm); err != nil {
+					return err
+				}
+				continue
+			}
+			// We try to parse the identifier as a major label.
+			// That means the next token should be a ':'
+			labName := tok.s
+			tok, err = asm.nextToken()
+			if err != nil {
 				return err
 			}
+			if tok.t != ':' {
+				return asm.scanErrorf("unknown command %s", labName)
+			}
+			if err := asm.setLabel(labName, 0); err != nil {
+				return err
+			}
+			continue
 		case ';':
 			continue
 		case '\n':
 			continue
 		case '.':
-			if err := asm.assembleLabel(); err != nil {
+			if err := asm.assembleMinorLabel(); err != nil {
 				return err
 			}
 		default:
@@ -362,8 +381,16 @@ func (asm *Assembler) writeBytes(bs []byte) error {
 
 // GetLabel returns the value of the given label.
 // It is only valid after the assembler has run.
-func (asm *Assembler) GetLabel(l string) (uint16, bool) {
-	v, ok := asm.l[l]
+func (asm *Assembler) GetLabel(majLabel, l string) (uint16, bool) {
+	if strings.HasPrefix(l, ".") {
+		v, ok := asm.l[majLabel+l]
+		return v, ok
+	}
+	v, ok := asm.l[majLabel+"."+l]
+	if ok {
+		return v, ok
+	}
+	v, ok = asm.l[l]
 	return v, ok
 }
 
@@ -603,15 +630,12 @@ func (commandOrg) W(asm *Assembler) error {
 	return nil
 }
 
-func (asm *Assembler) assembleCommand(cmdOrig string) error {
-	cmd := strings.ToLower(cmdOrig)
-	if f, ok := asm.commandTable[cmd]; ok {
-		return f.W(asm)
+func (asm *Assembler) setLabel(label string, level int) error {
+	if level == 0 {
+		asm.currentMajorLabel = label
+	} else {
+		label = asm.currentMajorLabel + "." + label
 	}
-	return asm.scanErrorf("unknown command %v", cmdOrig)
-}
-
-func (asm *Assembler) setLabel(label string) error {
 	if asm.pass == 1 {
 		fass := asm.labelAssign[label]
 		if asm.location() != fass {
@@ -626,14 +650,14 @@ func (asm *Assembler) setLabel(label string) error {
 	return nil
 }
 
-func (asm *Assembler) assembleLabel() error {
+func (asm *Assembler) assembleMinorLabel() error {
 	tok, err := asm.nextToken()
 	if err != nil {
 		return err
 	}
 	switch tok.t {
 	case scanner.Ident:
-		return asm.setLabel(tok.s)
+		return asm.setLabel(tok.s, 1)
 	default:
 		return asm.scanErrorf("unexpected %s", tok)
 	}
