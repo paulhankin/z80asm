@@ -10,6 +10,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/paulhankin/z80asm/cmd/z80asm/z80asmlib"
@@ -17,5 +18,8 @@ import (
 
 func main() {
 	opts := z80asmlib.OptionsFromFlags(os.Args)
-	os.Exit(z80asmlib.Main(opts))
+	if err := z80asmlib.Main(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(2)
+	}
 }

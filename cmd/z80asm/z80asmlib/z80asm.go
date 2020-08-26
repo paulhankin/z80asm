@@ -79,40 +79,35 @@ func usage(fs *flag.FlagSet, arg0 string) {
 	os.Exit(2)
 }
 
-func Main(opts *Options) int {
+func Main(opts *Options) error {
 	asm, err := z80asm.NewAssembler(opts.AsmOptions...)
 	if err != nil {
-		pf("%s\n", err)
-		return 1
+		return err
 	}
 	if err := asm.AssembleFile(opts.SourceFile); err != nil {
-		pf("%s\n", err)
-		return 1
+		return err
 	}
 
 	m, err := z80io.NewSNAMachine(asm.RAM())
 	if err != nil {
-		pf("%s\n", err)
-		return 1
+		return err
 	}
 
 	value, ok := asm.GetLabel("", "main")
 	if !ok {
-		pf("ERROR: missing .main entrypoint in %s\n", os.Args[1:])
-		return 3
+		return fmt.Errorf("ERROR: missing .main entrypoint in %s\n", opts.SourceFile)
 	}
 	m.PC = value
 
 	out := *outFile
 	if out == "" {
-		dir, base := path.Split(os.Args[1])
-		ext := path.Ext(os.Args[1])
+		dir, base := path.Split(opts.SourceFile)
+		ext := path.Ext(opts.SourceFile)
 		out = path.Join(dir, base[:len(base)-len(ext)]+".sna")
 	}
 
 	if err := z80io.SaveSNA(out, m); err != nil {
-		pf("failed to write .sna file %s: %v\n", out, err)
-		return 3
+		return fmt.Errorf("failed to write .sna file %s: %v\n", out, err)
 	}
-	return 0
+	return nil
 }
