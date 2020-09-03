@@ -106,15 +106,16 @@ type Z80 struct {
 
 	interruptsEnabledAt int
 
-	memory MemoryAccessor
-	ports  PortAccessor
+	memory    MemoryAccessor
+	ports     PortAccessor
+	registers NextRegisterAccessor
 
 	rzxInstructionsOffset int
 }
 
 // NewZ80 creates a new Z80 instance.
-func NewZ80(memory MemoryAccessor, ports PortAccessor) *Z80 {
-	z80 := &Z80{memory: memory, ports: ports}
+func NewZ80(memory MemoryAccessor, ports PortAccessor, registers NextRegisterAccessor) *Z80 {
+	z80 := &Z80{memory: memory, ports: ports, registers: registers}
 	z80.bc = register16{&z80.B, &z80.C}
 	z80.bc_ = register16{&z80.B_, &z80.C_}
 	z80.hl = register16{&z80.H, &z80.L}

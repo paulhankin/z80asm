@@ -265,14 +265,22 @@ func (z80 *Z80) doOpcodes() {
 	}
 }
 
+type testRegister struct{}
+
+func (testRegister) WriteRegister(r uint8, b byte) {}
+func (testRegister) ReadRegister(r uint8) byte {
+	return 0
+}
+
 func TestDoOpcodes(t *testing.T) {
 
 	var memory testMemory
 	var port testPort
+	var register testRegister
 	memory.data_map = make(map[uint16]byte)
 
 	// Instantiate a Z80 processor
-	z80 := NewZ80(&memory, &port)
+	z80 := NewZ80(&memory, &port, &register)
 	//	ula := NewULA()
 	//	z80.init(ula, nil /*tapeDrive_orNil*/)
 	//	ula.init(z80, &memory, &port)
@@ -465,35 +473,3 @@ func TestDoOpcodes(t *testing.T) {
 	}
 
 }
-
-// func BenchmarkZ80(b *testing.B) {
-// 	b.StopTimer()
-
-// 	rom, err := ReadROM("testdata/48.rom")
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	app := NewApplication()
-// 	speccy := NewSpectrum48k(app, *rom)
-
-// 	snapshot, err := formats.ReadProgram("testdata/fire.z80")
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	err = speccy.loadSnapshot(snapshot.(formats.Snapshot))
-// 	if err != nil {
-// 		panic(err)
-// 	}
-
-// 	b.StartTimer()
-
-// 	for i := 0; i < b.N; i++ {
-// 		speccy.CommandChannel <- Cmd_RenderFrame{CompletionTime_orNil: nil}
-// 		//speccy.renderFrame(nil /*completionTime_orNil*/)
-// 	}
-
-// 	app.RequestExit()
-// 	<-app.HasTerminated
-// }
