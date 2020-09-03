@@ -28,7 +28,7 @@ func toHex(bs []byte) string {
 	return strings.Join(r, " ")
 }
 
-func testFailureSnippet(t *testing.T, nextCore int, fs ffs, mustContain string) {
+func testFailureSnippet(t *testing.T, nextCore Z80Core, fs ffs, mustContain string) {
 	desc := fs["a.asm"]
 	asm, err := NewAssembler(UseNextCore(nextCore))
 	if err != nil {
@@ -45,7 +45,7 @@ func testFailureSnippet(t *testing.T, nextCore int, fs ffs, mustContain string) 
 	}
 }
 
-func testSnippet(t *testing.T, nextCore, org int, fs ffs, want []byte) {
+func testSnippet(t *testing.T, nextCore Z80Core, org int, fs ffs, want []byte) {
 	desc := fs["a.asm"]
 	asm, err := NewAssembler(UseNextCore(nextCore))
 	if err != nil {
@@ -72,7 +72,7 @@ func testSnippet(t *testing.T, nextCore, org int, fs ffs, want []byte) {
 func TestAsmSnippets(t *testing.T) {
 	testcases := []struct {
 		fs       ffs
-		nextCore int
+		nextCore Z80Core
 		want     []byte
 	}{
 		{
@@ -228,49 +228,49 @@ func TestAsmSnippets(t *testing.T) {
 		},
 
 		{
-			nextCore: 1,
+			nextCore: Z80CoreNext1,
 			fs: ffs{
 				"a.asm": "ldix; ldws; ldirx; lddx; lddrx; ldpirx",
 			},
 			want: []byte{0xed, 0xa4, 0xed, 0xa5, 0xed, 0xb4, 0xed, 0xac, 0xed, 0xbc, 0xed, 0xb7},
 		},
 		{
-			nextCore: 1,
+			nextCore: Z80CoreNext1,
 			fs: ffs{
 				"a.asm": "outinb; mul d, e; add hl, a; add de, a; add bc, a",
 			},
 			want: []byte{0xed, 0x90, 0xed, 0x30, 0xed, 0x31, 0xed, 0x32, 0xed, 0x33},
 		},
 		{
-			nextCore: 1,
+			nextCore: Z80CoreNext1,
 			fs: ffs{
 				"a.asm": "add hl, 0xa823; add de, 0x0102; add bc, 0x6543",
 			},
 			want: []byte{0xed, 0x34, 0x23, 0xa8, 0xed, 0x35, 0x02, 0x01, 0xed, 0x36, 0x43, 0x65},
 		},
 		{
-			nextCore: 1,
+			nextCore: Z80CoreNext1,
 			fs: ffs{
 				"a.asm": "swapnib; mirror a; pixeldn; pixelad; setae",
 			},
 			want: []byte{0xed, 0x23, 0xed, 0x24, 0xed, 0x93, 0xed, 0x94, 0xed, 0x95},
 		},
 		{
-			nextCore: 1,
+			nextCore: Z80CoreNext1,
 			fs: ffs{
 				"a.asm": "push 0xabcd; test 0x5a",
 			},
 			want: []byte{0xed, 0x8a, 0xab, 0xcd, 0xed, 0x27, 0x5a},
 		},
 		{
-			nextCore: 1,
+			nextCore: Z80CoreNext1,
 			fs: ffs{
 				"a.asm": "nextreg 0xab, 0x42; nextreg 0xfa, a",
 			},
 			want: []byte{0xed, 0x91, 0xab, 0x42, 0xed, 0x92, 0xfa},
 		},
 		{
-			nextCore: 2,
+			nextCore: Z80CoreNext2,
 			fs: ffs{
 				"a.asm": "bsla de, b; bsra de, b; bsrl de, b; bsrf de, b; brlc de, b; jp (c)",
 			},
@@ -306,7 +306,7 @@ func TestAsmSnippets(t *testing.T) {
 		},
 	}
 	for _, tc := range testcases {
-		for c := 0; c < 3; c++ {
+		for c := Z80Core(0); c < 3; c++ {
 			if c >= tc.nextCore {
 				testSnippet(t, c, 0x8000, tc.fs, tc.want)
 			} else {

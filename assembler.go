@@ -55,16 +55,24 @@ func openFile(filename string) (io.ReadCloser, error) {
 	return f, err
 }
 
+type Z80Core int
+
+const (
+	Z80CoreStandard Z80Core = 0
+	Z80CoreNext1    Z80Core = 1
+	Z80CoreNext2    Z80Core = 2
+)
+
 type assemblerOption struct {
-	nextCore int
+	core Z80Core
 }
 
 type AssemblerOpt func(*assemblerOption) error
 
 // UseNextCore include Z80N opcodes for the given core.
-func UseNextCore(core int) AssemblerOpt {
+func UseNextCore(core Z80Core) AssemblerOpt {
 	return func(a *assemblerOption) error {
-		a.nextCore = core
+		a.core = core
 		return nil
 	}
 }
@@ -88,11 +96,11 @@ func NewAssembler(opts ...AssemblerOpt) (*Assembler, error) {
 	cmd0s := []map[string][]byte{commands0arg}
 	cmds := []map[string]args{commandsArgs, ixCommands, iyCommands}
 
-	if aopt.nextCore > 0 {
+	if aopt.core > 0 {
 		cmd0s = append(cmd0s, commands0argNext1)
 		cmds = append(cmds, commandsArgsNext1)
 	}
-	if aopt.nextCore > 1 {
+	if aopt.core > 1 {
 		cmds = append(cmds, commandsArgsNext2)
 	}
 
