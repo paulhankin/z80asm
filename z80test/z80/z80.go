@@ -624,6 +624,7 @@ func opcode_fd(z80 *Z80) {
 
 func init() {
 	initOpcodes()
+	initOpcodesNext()
 	OpcodesMap[0xcb] = opcode_cb
 	OpcodesMap[0xdd] = opcode_dd
 	OpcodesMap[0xed] = opcode_ed
