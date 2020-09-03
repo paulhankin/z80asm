@@ -40,7 +40,7 @@ const FLAG_Z = 0x40
 const FLAG_S = 0x80
 
 var (
-	OpcodesMap [1536]func(z80 *Z80)
+	OpcodesMap    [1536]func(z80 *Z80)
 	OpcodesDisMap [1536]func(memory MemoryReader, address uint16, shift int) (string, uint16, int)
 )
 
@@ -106,8 +106,8 @@ type Z80 struct {
 
 	interruptsEnabledAt int
 
-	memory          MemoryAccessor
-	ports           PortAccessor
+	memory MemoryAccessor
+	ports  PortAccessor
 
 	rzxInstructionsOffset int
 }
@@ -624,7 +624,6 @@ func opcode_fd(z80 *Z80) {
 
 func init() {
 	initOpcodes()
-	initOpcodesDis()
 	OpcodesMap[0xcb] = opcode_cb
 	OpcodesMap[0xdd] = opcode_dd
 	OpcodesMap[0xed] = opcode_ed
