@@ -273,7 +273,6 @@ func (testRegister) ReadRegister(r uint8) byte {
 }
 
 func TestDoOpcodes(t *testing.T) {
-
 	var memory testMemory
 	var port testPort
 	var register testRegister

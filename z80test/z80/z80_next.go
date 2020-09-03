@@ -1,5 +1,7 @@
 package z80
 
+import "math/bits"
+
 // This file extends the opcodes to include those of the Spectrum Next.
 // https://wiki.specnext.dev/Extended_Z80_instruction_set
 
@@ -39,8 +41,11 @@ func initOpcodesNext() {
 }
 
 func instrED__SWAPNIB(z80 *Z80) {
+	a := z80.A
+	z80.A = (a << 4) | (a >> 4)
 }
 func instrED__MIRROR_A(z80 *Z80) {
+	z80.A = bits.Reverse8(z80.A)
 }
 func instrED__TEST_iNN(z80 *Z80) {
 }
@@ -82,6 +87,10 @@ func instrED__NEXTREG_iNN_A(z80 *Z80) {
 func instrED__PIXELDN(z80 *Z80) {
 }
 func instrED__PIXELAD(z80 *Z80) {
+	d := uint16(z80.D)
+	e := uint16(z80.E)
+	hl := 0x4000 + ((d & 0xc0) << 5) + ((d & 0x7) << 8) + ((d & 0x38) << 2) + (e >> 3)
+	z80.hl.set(hl)
 }
 func instrED__SETAE(z80 *Z80) {
 }
