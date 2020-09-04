@@ -40,6 +40,10 @@ func initOpcodesNext() {
 	OpcodesMap[SHIFT_0xED+0xBC] = instrED__LDDRX
 }
 
+func notImplementedOpcode() {
+	panic("not implemented next opcode")
+}
+
 func instrED__SWAPNIB(z80 *Z80) {
 	a := z80.A
 	z80.A = (a << 4) | (a >> 4)
@@ -48,43 +52,61 @@ func instrED__MIRROR_A(z80 *Z80) {
 	z80.A = bits.Reverse8(z80.A)
 }
 func instrED__TEST_iNN(z80 *Z80) {
+	notImplementedOpcode()
 }
 
 func instrED__BSLA_DE_B(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__BSRA_DE_B(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__BSRL_DE_B(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__BSRF_DE_B(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__BRLC_DE_B(z80 *Z80) {
+	notImplementedOpcode()
 }
 
 func instrED__MUL_D_E(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__ADD_HL_A(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__ADD_DE_A(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__ADD_BC_A(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__ADD_HL_iNNNN(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__ADD_DE_iNNNN(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__ADD_BC_iNNNN(z80 *Z80) {
+	notImplementedOpcode()
 }
 
 func instrED__PUSH_iNNNN(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__OUTINB(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__NEXTREG_iNN_iNN(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__NEXTREG_iNN_A(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__PIXELDN(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__PIXELAD(z80 *Z80) {
 	d := uint16(z80.D)
@@ -93,18 +115,26 @@ func instrED__PIXELAD(z80 *Z80) {
 	z80.hl.set(hl)
 }
 func instrED__SETAE(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__JP_iC(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__LDIX(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__LDWS(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__LDDX(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__LDIRX(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__LDPIRX(z80 *Z80) {
+	notImplementedOpcode()
 }
 func instrED__LDDRX(z80 *Z80) {
+	notImplementedOpcode()
 }
