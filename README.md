@@ -100,3 +100,8 @@ If you want the length of a string (for example as an 8-bit value), you can use 
     .endhello
 
 This generates the bytes: `6, 'h', 'e', 'l', 'l', 'o', 0x0a`.
+
+Examples
+========
+
+`examples/backgammon` contains a complete ZX Spectrum game written with this assembler: backgammon with a computer opponent.

@@ -1,0 +1,2819 @@
+// Backgammon for the 48K ZX Spectrum, with a computer opponent.
+//
+// Assemble with:   go run ./cmd/z80asm examples/backgammon/backgammon.z80
+// which writes examples/backgammon/backgammon.sna.
+//
+// You play yellow and move from point 24 down to point 1, bearing off
+// from your home board in the bottom right. The computer plays black.
+//
+// Keys:
+//   O / 5 / 6       previous choice
+//   P / 8 / 7       next choice
+//   SPACE / ENTER   select
+//   X / 0           cancel a selected checker
+//   U               undo all moves made so far this turn
+//
+// The game uses no ROM routines: it has its own font and keyboard
+// reading, and uses an IM 2 interrupt handler for timing.
+//
+// Board representation
+// --------------------
+// Each side has a 26-byte array, from its own point of view:
+//   [0]      checkers borne off
+//   [1..24]  checkers on each point, numbered from that side's home
+//   [25]     checkers on the bar
+// Point p for one side is point 25-p for the other side.
+// The arrays live at page-aligned addresses so that H selects the side
+// and L the point.
+
+const HUMB = 0xc000     // human's board
+const CPUB = 0xc100     // computer's board
+const HUMS = 0xc200     // saved copy of the human's board (for undo)
+const CPUS = 0xc300     // saved copy of the computer's board (for undo)
+const SFRAMES = 0xc400  // search stack frames (8 bytes per depth)
+const TRIHW = 0xc500    // triangle half-width for each of 80 pixel rows
+
+const NONE = 0xff
+
+// Key codes returned by readkey/getkey.
+const K_NONE = 0
+const K_PREV = 1
+const K_NEXT = 2
+const K_SEL = 3
+const K_CANCEL = 4
+const K_UNDO = 5
+
+// Colours.
+const BOARD_PAPER = 4   // green
+const FRAME_PAPER = 3   // magenta
+const HUM_INK = 6       // yellow
+const CPU_INK = 0       // black
+const TRI_ODD = 2       // red triangles on odd points
+const TRI_EVEN = 7      // white triangles on even points
+const ATTR_TEXT = 0x07  // white on black
+const ATTR_HILITE = 0x78  // bright: black on white
+const ATTR_BOARD = 0x24 // green on green
+const ATTR_FRAME = 0x1b // magenta on magenta
+
+org 0x8000
+
+main:
+    di
+    ld sp, 0xfd00
+    // IM 2 vector table: 257 bytes of 0xfd at 0xfe00, so whatever is on
+    // the data bus the interrupt jumps to 0xfdfd, where we put "jp irq".
+    ld hl, 0xfe00
+    ld de, 0xfe01
+    ld bc, 256
+    ld (hl), 0xfd
+    ldir
+    ld a, 0xc3
+    ld (0xfdfd), a
+    ld hl, irq
+    ld (0xfdfe), hl
+    ld a, 0xfe
+    ld i, a
+    im 2
+    ei
+
+    xor a
+    out (0xfe), a
+    call init_tables
+    xor a
+    ld (score_hum), a
+    ld (score_cpu), a
+
+    call title_screen
+
+newgame:
+    call init_board
+    xor a
+    ld (dn), a
+    ld a, NONE
+    ld (cursor), a
+    ld (selsrc), a
+    call cls
+    call draw_frame
+    call drawboard
+    call opening
+.turnloop
+    ld a, (turn)
+    or a
+    jr nz, cputurn
+    call human_turn
+    jr checkwin
+.cputurn
+    call cpu_turn
+.checkwin
+    call check_win
+    or a
+    jr nz, gameover
+    ld a, (turn)
+    xor 1
+    ld (turn), a
+    jr turnloop
+.gameover
+    call game_over
+    jr newgame
+
+// ---------------------------------------------------------------------
+// Interrupts, timing, keyboard and random numbers.
+// ---------------------------------------------------------------------
+
+irq:
+    push af
+    push hl
+    ld hl, (frames)
+    inc hl
+    ld (frames), hl
+    pop hl
+    pop af
+    ei
+    reti
+
+// wait_frames waits for B frames (50 per second).
+wait_frames:
+    halt
+    djnz wait_frames
+    ret
+
+// anykey returns NZ if any key at all is pressed.
+anykey:
+    xor a
+    in a, (0xfe)
+    cpl
+    and 0x1f
+    ret
+
+// readkey returns A = one of the K_ codes for the key currently pressed.
+readkey:
+    ld a, 0xdf          // P O I U Y
+    in a, (0xfe)
+    bit 1, a
+    jr z, prev
+    bit 0, a
+    jr z, next
+    bit 3, a
+    jr z, undo
+    ld a, 0xf7          // 1 2 3 4 5
+    in a, (0xfe)
+    bit 4, a
+    jr z, prev
+    ld a, 0xef          // 0 9 8 7 6
+    in a, (0xfe)
+    bit 2, a
+    jr z, next
+    bit 3, a
+    jr z, next
+    bit 4, a
+    jr z, prev
+    bit 0, a
+    jr z, cancel
+    ld a, 0x7f          // SPACE SYM M N B
+    in a, (0xfe)
+    bit 0, a
+    jr z, select
+    bit 2, a
+    jr z, select
+    ld a, 0xbf          // ENTER L K J H
+    in a, (0xfe)
+    bit 0, a
+    jr z, select
+    ld a, 0xfe          // SHIFT Z X C V
+    in a, (0xfe)
+    bit 2, a
+    jr z, cancel
+    xor a
+    ret
+.prev
+    ld a, K_PREV
+    ret
+.next
+    ld a, K_NEXT
+    ret
+.undo
+    ld a, K_UNDO
+    ret
+.cancel
+    ld a, K_CANCEL
+    ret
+.select
+    ld a, K_SEL
+    ret
+
+// getkey waits for all keys to be released, then for one of the game
+// keys to be pressed. Returns its K_ code in A.
+getkey:
+    halt
+    call anykey
+    jr nz, getkey
+.wait
+    halt
+    call readkey
+    or a
+    jr z, wait
+    ret
+
+// waitany waits for all keys to be released, then for any key press.
+waitany:
+    halt
+    call anykey
+    jr nz, waitany
+.wait
+    halt
+    call anykey
+    jr z, wait
+    ret
+
+// rand returns a pseudo-random byte in A (16-bit xorshift).
+rand:
+    ld hl, (seed)
+    ld a, h
+    rra
+    ld a, l
+    rra
+    xor h
+    ld h, a
+    ld a, l
+    rra
+    ld a, h
+    rra
+    xor l
+    ld l, a
+    xor h
+    ld h, a
+    ld (seed), hl
+    ret
+
+// roll_die returns A = 1..6.
+roll_die:
+    call rand
+    and 7
+    jr z, roll_die
+    cp 7
+    jr z, roll_die
+    ret
+
+// roll_dice rolls two dice into dv/dn, setting up four dice for doubles.
+roll_dice:
+    call roll_die
+    ld (dv), a
+    call roll_die
+    ld (dv+1), a
+    ld b, a
+    ld a, (dv)
+    cp b
+    jr z, double
+    ld a, 2
+    ld (dn), a
+    xor a
+    ld (isdbl), a
+    jp clear_used
+.double
+    ld (dv+2), a
+    ld (dv+3), a
+    ld a, 4
+    ld (dn), a
+    ld a, 1
+    ld (isdbl), a
+    jp clear_used
+
+clear_used:
+    xor a
+    ld (dused), a
+    ld (dused+1), a
+    ld (dused+2), a
+    ld (dused+3), a
+    ret
+
+// ---------------------------------------------------------------------
+// Board set up.
+// ---------------------------------------------------------------------
+
+init_tables:
+    // Triangle half-widths: 7 for rows 0-9, 6 for rows 10-19, ...
+    ld hl, TRIHW
+    ld c, 7
+.outer
+    ld b, 10
+.inner
+    ld (hl), c
+    inc l
+    djnz inner
+    dec c
+    ld a, l
+    cp 80
+    jr c, outer
+    ret
+
+init_board:
+    ld hl, HUMB
+    ld b, 26
+.clr
+    ld (hl), 0
+    inc h
+    ld (hl), 0
+    dec h
+    inc l
+    djnz clr
+    ld a, 2
+    ld (HUMB+24), a
+    ld (CPUB+24), a
+    ld a, 5
+    ld (HUMB+13), a
+    ld (CPUB+13), a
+    ld (HUMB+6), a
+    ld (CPUB+6), a
+    ld a, 3
+    ld (HUMB+8), a
+    ld (CPUB+8), a
+    ret
+
+save_board:
+    ld hl, HUMB
+    ld de, HUMS
+    ld bc, 26
+    ldir
+    ld hl, CPUB
+    ld de, CPUS
+    ld bc, 26
+    ldir
+    ret
+
+restore_board:
+    ld hl, HUMS
+    ld de, HUMB
+    ld bc, 26
+    ldir
+    ld hl, CPUS
+    ld de, CPUB
+    ld bc, 26
+    ldir
+    ret
+
+side_hum:
+    ld a, HUMB >> 8
+    ld (me_hi), a
+    ld a, CPUB >> 8
+    ld (opp_hi), a
+    xor a
+    ld (curside), a
+    ret
+
+side_cpu:
+    ld a, CPUB >> 8
+    ld (me_hi), a
+    ld a, HUMB >> 8
+    ld (opp_hi), a
+    ld a, 1
+    ld (curside), a
+    ret
+
+// cpu2hum converts a location in A from the computer's numbering to the
+// human's numbering (used for display). 0 (off) and 25 (bar) are kept.
+cpu2hum:
+    or a
+    ret z
+    cp 25
+    ret z
+    ld b, a
+    ld a, 25
+    sub b
+    ret
+
+// ---------------------------------------------------------------------
+// Rules engine. All routines work on the side selected by me_hi/opp_hi.
+// ---------------------------------------------------------------------
+
+// legal checks whether moving a checker from point B (1..25) with die C
+// is legal. Returns carry clear if legal, carry set if not.
+// Preserves B and C.
+legal:
+    ld a, (me_hi)
+    ld h, a
+    ld l, b
+    ld a, (hl)
+    or a
+    jr z, no
+    ld l, 25
+    ld a, (hl)
+    or a
+    jr z, barok
+    ld a, b             // checkers on the bar must enter first
+    cp 25
+    jr nz, no
+.barok
+    ld a, b
+    sub c
+    jr z, bearoff
+    jr c, bearoff
+    // Landing on point A: blocked if the opponent has 2+ there.
+    ld e, a
+    ld a, 25
+    sub e
+    ld l, a
+    ld a, (opp_hi)
+    ld h, a
+    ld a, (hl)
+    cp 2
+    jr nc, no
+    or a
+    ret
+.bearoff
+    // All checkers must be in the home board (points 1..6).
+    ld l, 7
+    ld d, 19
+    xor a
+.sum
+    or (hl)
+    inc l
+    dec d
+    jr nz, sum
+    or a
+    jr nz, no
+    ld a, b
+    cp c
+    ret z               // exact bear off (carry is clear)
+    // Die is bigger than needed: only allowed if no checkers on
+    // higher points.
+    ld l, b
+.higher
+    inc l
+    ld a, l
+    cp 7
+    jr z, yes
+    ld a, (hl)
+    or a
+    jr nz, no
+    jr higher
+.yes
+    or a
+    ret
+.no
+    scf
+    ret
+
+// domove moves a checker from point B with die C (the move must be legal).
+// Returns E = destination (0 = borne off) and D = 1 if a blot was hit.
+// Preserves B and C.
+domove:
+    ld a, (me_hi)
+    ld h, a
+    ld l, b
+    dec (hl)
+    ld a, b
+    sub c
+    jr z, off
+    jr c, off
+    ld l, a
+    inc (hl)
+    ld e, a
+    ld d, 0
+    ld a, 25
+    sub e
+    ld l, a
+    ld a, (opp_hi)
+    ld h, a
+    ld a, (hl)
+    dec a
+    ret nz
+    ld (hl), a          // hit: the blot goes to the bar
+    ld l, 25
+    inc (hl)
+    inc d
+    ret
+.off
+    ld l, 0
+    inc (hl)
+    ld e, 0
+    ld d, 0
+    ret
+
+// undomove undoes a move: B = from, E = to, D = hit flag.
+undomove:
+    ld a, (me_hi)
+    ld h, a
+    ld l, b
+    inc (hl)
+    ld l, e
+    dec (hl)
+    ld a, d
+    or a
+    ret z
+    ld a, (opp_hi)
+    ld h, a
+    ld l, 25
+    dec (hl)
+    ld a, 25
+    sub e
+    ld l, a
+    inc (hl)
+    ret
+
+// search recursively explores all sequences of moves using the unused
+// dice, from the current position. IX points to the stack frame:
+//   +0 die index being tried     +1 from point
+//   +2 destination of the move   +3 hit flag
+//   +4 1 if any move was found   +5 die value
+//   +6 highest from point allowed (doubles are generated in
+//      non-increasing order of from point to avoid duplicates)
+//   +7 depth
+// At the leaves, mode 0 records the maximum number of dice that can be
+// played, and mode 1 evaluates the position and remembers the best one.
+search:
+    ld (ix+4), 0
+    ld (ix+0), 0
+.kloop
+    ld a, (dn)
+    ld b, a
+    ld a, (ix+0)
+    cp b
+    jp nc, kdone
+    ld e, a
+    ld d, 0
+    ld hl, dused
+    add hl, de
+    ld a, (hl)
+    or a
+    jp nz, knext
+    ld (hl), 1
+    ld hl, dv
+    add hl, de
+    ld a, (hl)
+    ld (ix+5), a
+    ld a, (ix+6)
+    ld (ix+1), a
+.floop
+    ld b, (ix+1)
+    ld c, (ix+5)
+    call legal
+    jr c, fnext
+    call domove
+    ld (ix+2), e
+    ld (ix+3), d
+    ld (ix+4), 1
+    ld e, (ix+7)
+    ld d, 0
+    ld hl, seqfrom
+    add hl, de
+    ld (hl), b
+    ld hl, seqdie
+    add hl, de
+    ld (hl), c
+    push ix
+    ld de, 8
+    add ix, de
+    ld a, (ix-1)
+    inc a
+    ld (ix+7), a
+    ld a, (isdbl)
+    or a
+    ld a, 25
+    jr z, notdbl
+    ld a, b
+.notdbl
+    ld (ix+6), a
+    call search
+    pop ix
+    ld b, (ix+1)
+    ld e, (ix+2)
+    ld d, (ix+3)
+    call undomove
+    ld a, (abort)
+    or a
+    jr nz, kend
+.fnext
+    dec (ix+1)
+    jr nz, floop
+.kend
+    ld e, (ix+0)
+    ld d, 0
+    ld hl, dused
+    add hl, de
+    ld (hl), 0
+    ld a, (abort)
+    or a
+    ret nz
+    ld a, (isdbl)       // with doubles all the dice are the same
+    or a
+    jr nz, kdone
+.knext
+    inc (ix+0)
+    jp kloop
+.kdone
+    ld a, (ix+4)
+    or a
+    ret nz
+    // This is a leaf: no more moves could be made.
+    ld a, (mode)
+    or a
+    jp nz, leaf_eval
+    ld b, (ix+7)
+    ld a, (maxlen)
+    cp b
+    jr nc, m1
+    ld a, b
+    ld (maxlen), a
+.m1
+    ld a, b
+    cp 1
+    jr nz, m2
+    ld a, (seqdie)      // largest die that can be played on its own
+    ld c, a
+    ld a, (hi)
+    cp c
+    jr nc, m2
+    ld a, c
+    ld (hi), a
+.m2
+    ld a, (searchn)
+    cp b
+    ret nz
+    ld a, 1             // all dice can be played: stop searching
+    ld (abort), a
+    ret
+
+leaf_eval:
+    ld b, (ix+7)
+    ld a, (maxlen)
+    cp b
+    ret nz
+    ld a, (forcehi)
+    or a
+    jr z, evalok
+    ld c, a
+    ld a, (seqdie)
+    cp c
+    ret nz
+.evalok
+    push ix
+    call evaluate
+    pop ix
+    ld de, (bestscore)
+    or a
+    sbc hl, de
+    ret c
+    add hl, de
+    ld (bestscore), hl
+    ld hl, seqfrom
+    ld de, bestfrom
+    ld bc, 8
+    ldir
+    ld a, (maxlen)
+    ld (bestlen), a
+    ret
+
+// findmax returns A = the maximum number of the unused dice that can be
+// played from the current position (also sets hi).
+findmax:
+    xor a
+    ld (maxlen), a
+    ld (hi), a
+    ld (abort), a
+    ld (mode), a
+    ld a, (dn)
+    ld b, a
+    ld hl, dused
+    ld c, 0
+.count
+    ld a, (hl)
+    or a
+    jr nz, used
+    inc c
+.used
+    inc hl
+    djnz count
+    ld a, c
+    ld (searchn), a
+    ld ix, SFRAMES
+    ld (ix+6), 25
+    ld (ix+7), 0
+    call search
+    ld a, (maxlen)
+    ret
+
+// turn_setup works out how many dice must be played this turn (need), and
+// whether a single die must be the higher one (forcehi).
+turn_setup:
+    call clear_used
+    call findmax
+    ld (need), a
+    ld (need0), a
+    xor a
+    ld (forcehi), a
+    ld a, (need)
+    cp 1
+    ret nz
+    ld a, (isdbl)
+    or a
+    ret nz
+    ld a, (hi)
+    ld (forcehi), a
+    ret
+
+// humlegal checks whether moving from point B with die index A is legal
+// as part of a complete turn: the move must be legal and the remaining
+// dice must still be playable as far as the rules require.
+// Returns carry clear if so. Preserves B.
+humlegal:
+    ld (hl_k), a
+    ld e, a
+    ld d, 0
+    ld hl, dused
+    add hl, de
+    ld a, (hl)
+    or a
+    jr nz, no
+    ld hl, dv
+    add hl, de
+    ld c, (hl)
+    ld a, (forcehi)
+    or a
+    jr z, anydie
+    cp c
+    jr nz, no
+.anydie
+    call legal
+    ret c
+    push bc
+    call domove
+    push de
+    ld a, (hl_k)
+    ld e, a
+    ld d, 0
+    ld hl, dused
+    add hl, de
+    ld (hl), 1
+    push hl
+    call findmax
+    pop hl
+    ld (hl), 0
+    ld (hl_r), a
+    pop de
+    pop bc
+    call undomove
+    ld a, (hl_r)
+    inc a
+    ld c, a
+    ld a, (need)
+    cp c
+    jr nz, no
+    or a
+    ret
+.no
+    scf
+    ret
+
+// mark_used marks the first unused die with value C as used.
+mark_used:
+    ld hl, dused
+    ld de, dv
+    ld b, 4
+.lp
+    ld a, (hl)
+    or a
+    jr nz, skip
+    ld a, (de)
+    cp c
+    jr nz, skip
+    ld (hl), 1
+    ret
+.skip
+    inc hl
+    inc de
+    djnz lp
+    ret
+
+// ---------------------------------------------------------------------
+// Computer player.
+// ---------------------------------------------------------------------
+
+// ai_think finds the best sequence of moves for the side to move
+// (need must be > 0). Result in bestfrom/bestdie/bestlen.
+ai_think:
+    ld a, 1
+    ld (mode), a
+    xor a
+    ld (abort), a
+    ld (bestlen), a
+    ld hl, 0
+    ld (bestscore), hl
+    ld a, (need)
+    ld (maxlen), a
+    ld ix, SFRAMES
+    ld (ix+6), 25
+    ld (ix+7), 0
+    jp search
+
+// pipcount: A = page of a board. Returns HL = pip count and
+// A = the furthest back point with a checker (0 if none).
+pipcount:
+    ld d, a
+    ld e, 25
+    ld hl, 0
+    ld bc, 0
+    xor a
+    ld (pc_back), a
+.lp
+    ld a, (de)
+    or a
+    jr z, empty
+    ld a, (pc_back)
+    or a
+    jr nz, gotback
+    ld a, e
+    ld (pc_back), a
+.gotback
+    ld a, (de)
+.empty
+    add a, c
+    ld c, a
+    add hl, bc
+    dec e
+    jr nz, lp
+    ld a, (pc_back)
+    ret
+
+// evaluate scores the position for the side to move (me_hi).
+// Returns HL: bigger is better.
+evaluate:
+    ld a, (me_hi)
+    ld h, a
+    ld l, 0
+    ld a, (hl)
+    cp 15
+    jr nz, notwon
+    ld hl, 0xfff0
+    ret
+.notwon
+    ld a, (me_hi)
+    call pipcount
+    ld (ev_mypips), hl
+    ld (ev_myback), a
+    ld a, (opp_hi)
+    call pipcount
+    ld (ev_opppips), hl
+    ld b, a
+    ld a, (ev_myback)
+    add a, b
+    cp 26
+    jp c, eval_race
+    // Contact position. Start with the pip count difference.
+    ld hl, (ev_opppips)
+    ld de, (ev_mypips)
+    or a
+    sbc hl, de
+    add hl, hl
+    ld de, 0x8000
+    add hl, de
+    ld (ev_score), hl
+    xor a
+    ld (ev_run), a
+    ld (ev_home), a
+    ld a, (me_hi)
+    ld d, a
+    ld e, 1
+.ploop
+    ld a, (de)
+    cp 2
+    jr c, notpoint
+    // A point we hold.
+    ld hl, pointval
+    ld a, l
+    add a, e
+    ld l, a
+    ld a, h
+    adc a, 0
+    ld h, a
+    ld c, (hl)
+    ld b, 0
+    ld hl, (ev_score)
+    add hl, bc
+    ld a, (ev_run)      // bonus for a run of consecutive points
+    inc a
+    ld (ev_run), a
+    push hl
+    ld hl, primeinc
+    ld c, a
+    add hl, bc
+    ld c, (hl)
+    pop hl
+    add hl, bc
+    ld a, e
+    cp 7
+    jr nc, nothome
+    ld a, (ev_home)
+    inc a
+    ld (ev_home), a
+.nothome
+    ld a, (de)          // penalty for big stacks
+    sub 4
+    jr c, nostack
+    jr z, nostack
+    ld c, a
+    add a, a
+    add a, c
+    ld c, a
+    or a
+    sbc hl, bc
+.nostack
+    ld (ev_score), hl
+    jr pnext
+.notpoint
+    ld c, a
+    xor a
+    ld (ev_run), a
+    ld a, c
+    cp 1
+    jr nz, pnext
+    push de             // a blot: penalty depends on how likely it is to be hit
+    call blotpenalty
+    ld hl, (ev_score)
+    or a
+    sbc hl, bc
+    ld (ev_score), hl
+    pop de
+.pnext
+    inc e
+    ld a, e
+    cp 25
+    jr c, ploop
+    // Bonus for opponent checkers on the bar when our home board is strong.
+    ld hl, (ev_score)
+    ld a, (opp_hi)
+    ld d, a
+    ld e, 25
+    ld a, (de)
+    or a
+    ret z
+    ld b, a
+    ld a, (ev_home)
+    add a, a
+    add a, a
+    ld e, a
+    ld d, 0
+.barlp
+    add hl, de
+    djnz barlp
+    ret
+
+// eval_race scores a position with no more contact.
+eval_race:
+    ld hl, (ev_mypips)
+    add hl, hl
+    add hl, hl
+    ex de, hl
+    ld hl, 0x8000
+    or a
+    sbc hl, de
+    ld a, (me_hi)
+    ld d, a
+    ld e, 0
+    ld a, (de)          // bonus for checkers borne off
+    ld c, a
+    add a, a
+    add a, c
+    add a, a
+    add a, a
+    ld c, a
+    ld b, 0
+    add hl, bc
+    push hl
+    ld a, (me_hi)       // penalty for checkers still outside home
+    ld h, a
+    ld l, 7
+    ld b, 18
+    xor a
+.out
+    add a, (hl)
+    inc l
+    djnz out
+    add a, a
+    ld c, a
+    ld b, 0
+    pop hl
+    or a
+    sbc hl, bc
+    ret
+
+// blotpenalty: E = point of a blot. Returns BC = penalty.
+blotpenalty:
+    ld b, e
+    ld a, (opp_hi)
+    ld h, a
+    ld a, 26
+    sub b
+    ld l, a
+    ld c, 0
+.jloop
+    ld a, (hl)
+    or a
+    jr z, jnext
+    // Opponent checkers at their point L are at distance L+B-25.
+    ld a, l
+    add a, b
+    sub 25
+    ld e, a
+    ld d, 0
+    push hl
+    ld hl, shottab
+    add hl, de
+    ld a, (hl)
+    pop hl
+    cp c
+    jr c, jnext
+    ld c, a
+.jnext
+    inc l
+    ld a, l
+    cp 26
+    jr c, jloop
+    ld a, c
+    or a
+    jr z, zero
+    ld e, b
+    ld d, 0
+    ld hl, blotw
+    add hl, de
+    ld e, (hl)
+    ld hl, 0
+    ld b, c
+.mul
+    add hl, de
+    djnz mul
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    ld b, h
+    ld c, l
+    ret
+.zero
+    ld bc, 0
+    ret
+
+// Number of the 36 rolls that hit a blot at distance 1..24.
+shottab:
+    db 0, 11, 12, 14, 15, 15, 17, 6, 6, 5, 3, 2, 3, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1
+// Cost of being hit on each point (about 16/9 times the pips lost).
+blotw:
+    db 0, 43, 41, 39, 37, 36, 34, 32, 30, 28, 27, 25, 23, 21, 20, 18, 16, 14, 12, 11, 9, 7, 5, 4, 2
+// Value of holding each point.
+pointval:
+    db 0, 4, 6, 8, 12, 16, 16, 12, 8, 6, 4, 2, 2, 1, 1, 1, 1, 1, 3, 5, 6, 6, 4, 3, 2
+// Extra bonus for extending a run of consecutive points to each length.
+primeinc:
+    db 0, 0, 0, 6, 8, 10, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16
+
+// ---------------------------------------------------------------------
+// Graphics.
+// ---------------------------------------------------------------------
+
+// pixaddr: B = pixel row (0..191), C = character column. Returns HL.
+pixaddr:
+    ld a, b
+    and 7
+    or 0x40
+    ld h, a
+    ld a, b
+    rra
+    rra
+    rra
+    and 0x18
+    or h
+    ld h, a
+    ld a, b
+    rla
+    rla
+    and 0xe0
+    or c
+    ld l, a
+    ret
+
+// down_hl moves the screen address in HL one pixel row down.
+down_hl:
+    inc h
+    ld a, h
+    and 7
+    ret nz
+    ld a, l
+    add a, 32
+    ld l, a
+    ret c
+    ld a, h
+    sub 8
+    ld h, a
+    ret
+
+// up_hl moves the screen address in HL one pixel row up.
+up_hl:
+    ld a, h
+    dec h
+    and 7
+    ret nz
+    ld a, l
+    sub 32
+    ld l, a
+    ret c
+    ld a, h
+    add a, 8
+    ld h, a
+    ret
+
+// attraddr: B = character row, C = column. Returns HL.
+attraddr:
+    ld a, b
+    rrca
+    rrca
+    rrca
+    ld l, a
+    and 3
+    or 0x58
+    ld h, a
+    ld a, l
+    and 0xe0
+    or c
+    ld l, a
+    ret
+
+// fill_attr: B = row, C = column, D = width, E = height, A = attribute.
+fill_attr:
+    ld (fa_attr), a
+    call attraddr
+.rows
+    push hl
+    ld b, d
+    ld a, (fa_attr)
+.cols
+    ld (hl), a
+    inc hl
+    djnz cols
+    pop hl
+    push de
+    ld de, 32
+    add hl, de
+    pop de
+    dec e
+    jr nz, rows
+    ret
+
+cls:
+    ld hl, 0x4000
+    ld de, 0x4001
+    ld bc, 6143
+    ld (hl), 0
+    ldir
+    ld hl, 0x5800
+    ld de, 0x5801
+    ld bc, 767
+    ld (hl), ATTR_TEXT
+    ldir
+    ret
+
+// putchar prints character A at row B, column C using text_attr, and
+// advances C. Preserves BC (apart from C), DE and HL.
+putchar:
+    push bc
+    push de
+    push hl
+    sub 32
+    jr nc, above
+    xor a
+.above
+    cp 59
+    jr c, known
+    xor a
+.known
+    ld l, a
+    ld h, 0
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    ld de, font
+    add hl, de
+    ex de, hl
+    push bc
+    ld a, b
+    add a, a
+    add a, a
+    add a, a
+    ld b, a
+    call pixaddr
+    ld b, 8
+.lp
+    ld a, (de)
+    ld (hl), a
+    inc de
+    inc h
+    djnz lp
+    pop bc
+    call attraddr
+    ld a, (text_attr)
+    ld (hl), a
+    pop hl
+    pop de
+    pop bc
+    inc c
+    ret
+
+// print prints the zero-terminated string at HL at row B, column C.
+print:
+    ld a, (hl)
+    or a
+    ret z
+    call putchar
+    inc hl
+    jr print
+
+// print_num2 prints A (0..99) as two characters, with a leading space.
+print_num2:
+    ld d, 0
+.tens
+    cp 10
+    jr c, units
+    sub 10
+    inc d
+    jr tens
+.units
+    ld e, a
+    ld a, d
+    or a
+    ld a, 32
+    jr z, space
+    ld a, d
+    add a, 48
+.space
+    call putchar
+    ld a, e
+    add a, 48
+    jp putchar
+
+// show_msg shows the strings HL and DE in the message area.
+show_msg:
+    push de
+    push hl
+    ld a, ATTR_TEXT
+    ld (text_attr), a
+    ld b, 11
+    ld c, 1
+    ld hl, blank12
+    call print
+    ld b, 12
+    ld c, 1
+    ld hl, blank12
+    call print
+    pop hl
+    ld b, 11
+    ld c, 1
+    call print
+    pop hl
+    ld b, 12
+    ld c, 1
+    jp print
+
+// draw_frame sets up the attributes of the static parts of the board.
+draw_frame:
+    ld b, 1
+    ld c, 0
+    ld d, 32
+    ld e, 22
+    ld a, ATTR_BOARD
+    call fill_attr
+    ld b, 11
+    ld c, 0
+    ld d, 32
+    ld e, 2
+    ld a, ATTR_TEXT
+    call fill_attr
+    ld b, 1
+    ld c, 0
+    ld d, 1
+    ld e, 22
+    ld a, ATTR_FRAME
+    call fill_attr
+    ld b, 1
+    ld c, 27
+    ld d, 1
+    ld e, 22
+    ld a, ATTR_FRAME
+    call fill_attr
+    ld b, 1
+    ld c, 13
+    ld d, 2
+    ld e, 22
+    ld a, ATTR_FRAME
+    jp fill_attr
+
+// drawcolumn draws a 16 pixel wide column of up to 5 checkers, either
+// hanging from the top edge of the board (dc_top = 1) or standing on the
+// bottom edge, over a triangle (or plain background if dc_tink = NONE).
+drawcolumn:
+    ld a, (dc_n)
+    cp 6
+    jr c, nv
+    ld a, 5
+.nv
+    ld (dc_nv), a
+    ld a, (dc_top)
+    or a
+    ld b, 8
+    jr nz, gottop
+    ld b, 183
+.gottop
+    ld a, (dc_col)
+    ld c, a
+    call pixaddr
+    xor a
+    ld (dc_r), a
+.row
+    ld a, (dc_r)
+    ld e, a
+    rrca
+    rrca
+    rrca
+    rrca
+    and 15
+    ld d, a
+    ld a, (dc_nv)
+    cp d
+    jr z, tri
+    jr c, tri
+    ld a, e
+    and 15
+    add a, a
+    ld e, a
+    ld d, 0
+    push hl
+    ld hl, checker_gfx
+    add hl, de
+    ld b, (hl)
+    inc hl
+    ld c, (hl)
+    pop hl
+    jr put
+.tri
+    ld bc, 0
+    ld a, (dc_tink)
+    cp NONE
+    jr z, put
+    ld d, TRIHW >> 8
+    ld a, (de)
+    push hl
+    ld e, a
+    ld d, 0
+    ld hl, tri_left
+    add hl, de
+    ld b, (hl)
+    ld de, 8
+    add hl, de
+    ld c, (hl)
+    pop hl
+.put
+    ld (hl), b
+    inc l
+    ld (hl), c
+    dec l
+    ld a, (dc_top)
+    or a
+    jr z, goup
+    call down_hl
+    jr nextrow
+.goup
+    call up_hl
+.nextrow
+    ld a, (dc_r)
+    inc a
+    ld (dc_r), a
+    cp 80
+    jr c, row
+    // Attributes: 10 character rows of 2 cells.
+    ld e, 0
+.arow
+    ld a, (dc_top)
+    or a
+    ld a, e
+    jr z, abot
+    inc a
+    jr gotrow
+.abot
+    ld a, 22
+    sub e
+.gotrow
+    ld b, a
+    ld a, (dc_col)
+    ld c, a
+    call attraddr
+    ld a, e
+    srl a
+    ld d, a             // slot
+    ld a, (dc_nv)
+    cp d
+    jr z, atri
+    jr c, atri
+    ld a, (dc_flash)
+    or a
+    ld a, (dc_cink)
+    jr z, gotink
+    ld a, (dc_nv)
+    dec a
+    cp d
+    ld a, (dc_cink)
+    jr nz, gotink
+    or 0x80
+    jr gotink
+.atri
+    ld a, (dc_tink)
+    cp NONE
+    jr nz, gotink
+    xor a
+.gotink
+    ld c, a
+    ld a, (dc_paper)
+    or c
+    ld c, a
+    ld a, (dc_bright)
+    or c
+    ld (hl), a
+    inc l
+    ld (hl), a
+    inc e
+    ld a, e
+    cp 10
+    jr c, arow
+    // More than 5 checkers: show the count on the outermost one.
+    ld a, (dc_n)
+    cp 6
+    ret c
+    ld a, (dc_cink)
+    ld c, a
+    add a, a
+    add a, a
+    add a, a
+    ld b, a             // paper = checker colour
+    ld a, c
+    or a
+    ld a, 7
+    jr z, inkok
+    xor a
+.inkok
+    or b
+    ld b, a
+    ld a, (dc_bright)
+    or b
+    ld b, a
+    ld a, (dc_flash)
+    or a
+    ld a, b
+    jr z, noflash
+    or 0x80
+.noflash
+    ld (text_attr), a
+    ld a, (dc_top)
+    or a
+    ld b, 9
+    jr nz, numrow
+    ld b, 14
+.numrow
+    ld a, (dc_col)
+    ld c, a
+    ld hl, blank2
+    call print
+    ld a, (dc_top)
+    or a
+    ld b, 10
+    jr nz, numrow2
+    ld b, 13
+.numrow2
+    ld a, (dc_col)
+    ld c, a
+    ld a, (dc_n)
+    jp print_num2
+
+tri_left:
+    db 0x00, 0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x7f
+tri_right:
+    db 0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe
+
+// Screen column of each location in the human's numbering:
+// 0 = off (tray), 1..24 points, 25 = bar.
+pcol:
+    db 29, 25, 23, 21, 19, 17, 15, 11, 9, 7, 5, 3, 1
+    db 1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25, 13
+
+// drawpoint draws point A (1..24, human's numbering) and its label.
+drawpoint:
+    ld (dp_p), a
+    ld e, a
+    ld d, 0
+    ld hl, pcol
+    add hl, de
+    ld a, (hl)
+    ld (dc_col), a
+    ld a, (dp_p)
+    cp 13
+    ld a, 0
+    jr c, bottom
+    inc a
+.bottom
+    ld (dc_top), a
+    ld a, (dp_p)
+    ld l, a
+    ld h, HUMB >> 8
+    ld a, (hl)
+    or a
+    jr z, cpupt
+    ld (dc_n), a
+    ld a, HUM_INK
+    ld (dc_cink), a
+    jr gotn
+.cpupt
+    ld a, (dp_p)
+    ld b, a
+    ld a, 25
+    sub b
+    ld l, a
+    ld h, CPUB >> 8
+    ld a, (hl)
+    ld (dc_n), a
+    ld a, CPU_INK
+    ld (dc_cink), a
+.gotn
+    ld a, (dp_p)
+    and 1
+    ld a, TRI_EVEN
+    jr z, even
+    ld a, TRI_ODD
+.even
+    ld (dc_tink), a
+    ld a, BOARD_PAPER * 8
+    ld (dc_paper), a
+    ld a, (dp_p)
+    ld b, a
+    ld a, (cursor)
+    cp b
+    ld a, 0
+    jr nz, nobright
+    ld a, 0x40
+.nobright
+    ld (dc_bright), a
+    ld a, (selsrc)
+    cp b
+    ld a, 0
+    jr nz, noflash
+    inc a
+.noflash
+    ld (dc_flash), a
+    call drawcolumn
+    // Label.
+    ld a, (dc_top)
+    or a
+    ld b, 0
+    jr nz, labtop
+    ld b, 23
+.labtop
+    ld a, (dc_col)
+    ld c, a
+    ld a, (dc_bright)
+    or a
+    ld a, ATTR_TEXT
+    jr z, labattr
+    ld a, ATTR_HILITE
+.labattr
+    ld (text_attr), a
+    ld a, (dp_p)
+    jp print_label
+
+// print_label prints A (1..24) at row B, column C in a narrow font,
+// centred in two character cells, using text_attr.
+print_label:
+    push bc
+    ld d, 0
+.tens
+    cp 10
+    jr c, units
+    sub 10
+    inc d
+    jr tens
+.units
+    ld (pl_units), a
+    ld a, d
+    ld (pl_tens), a
+    ld a, b
+    add a, a
+    add a, a
+    add a, a
+    ld b, a
+    call pixaddr
+    ld b, 0
+.row
+    ld a, (pl_units)
+    call narrow_row
+    ld e, a
+    ld a, (pl_tens)
+    or a
+    jr z, single
+    call narrow_row     // two digits: xxxx.ttt .uuu....
+    add a, a
+    ld d, a
+    ld a, e
+    rlca
+    rlca
+    rlca
+    rlca
+    ld e, a
+    jr put
+.single
+    ld a, e             // one digit, centred: ......uu u.......
+    srl a
+    ld d, a
+    ld a, e
+    and 1
+    rrca
+    ld e, a
+.put
+    ld (hl), d
+    inc l
+    ld (hl), e
+    dec l
+    inc h
+    inc b
+    ld a, b
+    cp 8
+    jr c, row
+    pop bc
+    call attraddr
+    ld a, (text_attr)
+    ld (hl), a
+    inc l
+    ld (hl), a
+    ret
+
+// narrow_row returns A = row B of narrow digit A. Preserves BC, DE, HL.
+narrow_row:
+    push hl
+    push de
+    add a, a
+    add a, a
+    add a, a
+    add a, b
+    ld l, a
+    ld h, 0
+    ld de, narrow_digits
+    add hl, de
+    ld a, (hl)
+    pop de
+    pop hl
+    ret
+
+// 3x5 digits, in the low 3 bits of each row.
+narrow_digits:
+    db 0, 0, 7, 5, 5, 5, 7, 0   // 0
+    db 0, 0, 2, 6, 2, 2, 7, 0   // 1
+    db 0, 0, 7, 1, 7, 4, 7, 0   // 2
+    db 0, 0, 7, 1, 3, 1, 7, 0   // 3
+    db 0, 0, 5, 5, 7, 1, 1, 0   // 4
+    db 0, 0, 7, 4, 7, 1, 7, 0   // 5
+    db 0, 0, 7, 4, 7, 5, 7, 0   // 6
+    db 0, 0, 7, 1, 1, 2, 2, 0   // 7
+    db 0, 0, 7, 5, 7, 5, 7, 0   // 8
+    db 0, 0, 7, 5, 7, 1, 7, 0   // 9
+
+// loc_flags sets dc_bright/dc_flash for location B drawn for side C.
+loc_flags:
+    xor a
+    ld (dc_bright), a
+    ld (dc_flash), a
+    ld a, (curside)
+    cp c
+    ret nz
+    ld a, (cursor)
+    cp b
+    jr nz, noflag
+    ld a, 0x40
+    ld (dc_bright), a
+.noflag
+    ld a, (selsrc)
+    cp b
+    ret nz
+    ld a, 1
+    ld (dc_flash), a
+    ret
+
+// drawbar draws the bar: computer's checkers on top, human's below.
+drawbar:
+    ld a, 13
+    ld (dc_col), a
+    ld a, NONE
+    ld (dc_tink), a
+    ld a, FRAME_PAPER * 8
+    ld (dc_paper), a
+    ld a, 1
+    ld (dc_top), a
+    ld a, (CPUB+25)
+    ld (dc_n), a
+    ld a, CPU_INK
+    ld (dc_cink), a
+    ld b, 25
+    ld c, 1
+    call loc_flags
+    call drawcolumn
+    xor a
+    ld (dc_top), a
+    ld a, (HUMB+25)
+    ld (dc_n), a
+    ld a, HUM_INK
+    ld (dc_cink), a
+    ld b, 25
+    ld c, 0
+    call loc_flags
+    jp drawcolumn
+
+// drawtrayhalf draws the borne off checkers (count A) in the tray.
+drawtrayhalf:
+    ld (tr_cnt), a
+    ld a, (dc_top)
+    or a
+    ld b, 8
+    jr nz, top
+    ld b, 183
+.top
+    ld c, 29
+    call pixaddr
+    ld d, 0             // slab number
+    ld e, 0             // row within slab
+    ld b, 80
+.row
+    ld c, 0
+    ld a, e
+    cp 4
+    jr nc, put
+    ld a, (tr_cnt)
+    cp d
+    jr z, put
+    jr c, put
+    ld c, 0xff
+.put
+    ld (hl), c
+    inc l
+    ld (hl), c
+    dec l
+    ld a, (dc_top)
+    or a
+    jr z, goup
+    call down_hl
+    jr next
+.goup
+    call up_hl
+.next
+    inc e
+    ld a, e
+    cp 5
+    jr c, same
+    ld e, 0
+    inc d
+.same
+    djnz row
+    ret
+
+drawtray:
+    ld a, 1
+    ld (dc_top), a
+    ld a, (CPUB)
+    call drawtrayhalf
+    ld b, 0
+    ld c, 1
+    call loc_flags
+    ld a, (dc_bright)
+    or BOARD_PAPER * 8 + CPU_INK
+    ld b, 1
+    ld c, 28
+    ld d, 4
+    ld e, 10
+    call fill_attr
+    xor a
+    ld (dc_top), a
+    ld a, (HUMB)
+    call drawtrayhalf
+    ld b, 0
+    ld c, 0
+    call loc_flags
+    ld a, (dc_bright)
+    or BOARD_PAPER * 8 + HUM_INK
+    ld b, 13
+    ld c, 28
+    ld d, 4
+    ld e, 10
+    call fill_attr
+    ld a, (dc_bright)
+    or a
+    ld a, ATTR_TEXT
+    jr z, offattr
+    ld a, ATTR_HILITE
+.offattr
+    ld (text_attr), a
+    ld b, 23
+    ld c, 28
+    ld hl, str_off
+    jp print
+
+draw_score:
+    ld a, HUM_INK
+    ld (text_attr), a
+    ld b, 11
+    ld c, 28
+    ld hl, str_you
+    call print
+    ld a, (score_hum)
+    call print_num2
+    ld a, ATTR_TEXT
+    ld (text_attr), a
+    ld b, 12
+    ld c, 28
+    ld hl, str_cpu
+    call print
+    ld a, (score_cpu)
+    jp print_num2
+
+// draw_dice draws the dice (dn of them) in the middle of the board.
+draw_dice:
+    xor a
+    ld (dd_i), a
+.lp
+    ld a, (dd_i)
+    ld b, a
+    add a, a
+    add a, b
+    add a, 16
+    ld (dd_col), a
+    ld a, (dn)
+    cp b
+    jr z, nodie
+    jr c, nodie
+    // Die B: glyph = dice_gfx + (face-1)*32
+    ld e, b
+    ld d, 0
+    ld hl, dv
+    add hl, de
+    ld a, (hl)
+    dec a
+    ld l, a
+    ld h, 0
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    ld de, dice_gfx
+    add hl, de
+    ex de, hl
+    ld hl, dused
+    ld a, (dd_i)
+    add a, l
+    ld l, a
+    ld a, h
+    adc a, 0
+    ld h, a
+    ld a, (hl)
+    or a
+    ld a, ATTR_HILITE
+    jr z, gotattr
+    ld a, ATTR_TEXT
+.gotattr
+    ld (dd_attr), a
+    jr draw
+.nodie
+    ld de, blank_gfx
+    xor a
+    ld (dd_attr), a
+.draw
+    ld b, 88
+    ld a, (dd_col)
+    ld c, a
+    call pixaddr
+    ld b, 16
+.pix
+    ld a, (de)
+    ld (hl), a
+    inc de
+    inc l
+    ld a, (de)
+    ld (hl), a
+    inc de
+    dec l
+    push bc
+    call down_hl
+    pop bc
+    djnz pix
+    ld b, 11
+    ld a, (dd_col)
+    ld c, a
+    ld d, 2
+    ld e, 2
+    ld a, (dd_attr)
+    call fill_attr
+    ld a, (dd_i)
+    inc a
+    ld (dd_i), a
+    cp 4
+    jr c, lp
+    ret
+
+drawboard:
+    ld a, 1
+.lp
+    push af
+    call drawpoint
+    pop af
+    inc a
+    cp 25
+    jr c, lp
+    call drawbar
+    call drawtray
+    call draw_dice
+    jp draw_score
+
+// redraw_loc redraws location A (human numbering, NONE is ignored).
+redraw_loc:
+    cp NONE
+    ret z
+    or a
+    jp z, drawtray
+    cp 25
+    jp z, drawbar
+    jp drawpoint
+
+// set_cursor moves the cursor to location A, redrawing as needed.
+set_cursor:
+    ld b, a
+    ld a, (cursor)
+    ld c, a
+    ld a, b
+    ld (cursor), a
+    push bc
+    ld a, c
+    call redraw_loc
+    pop bc
+    ld a, b
+    jp redraw_loc
+
+// ---------------------------------------------------------------------
+// Game flow.
+// ---------------------------------------------------------------------
+
+title_screen:
+    call cls
+    ld hl, title_text
+.line
+    ld a, (hl)
+    cp NONE
+    jr z, wait
+    ld b, a
+    inc hl
+    ld c, (hl)
+    inc hl
+    ld a, (hl)
+    ld (text_attr), a
+    inc hl
+    call print
+    inc hl
+    jr line
+.wait
+    call waitany
+    ld a, r
+    ld hl, (frames)
+    xor l
+    ld l, a
+    or h
+    jr nz, seedok
+    inc hl
+.seedok
+    ld (seed), hl
+    ret
+
+opening:
+    ld hl, msg_opening
+    ld de, blank12
+    call show_msg
+    ld b, 50
+    call wait_frames
+.again
+    call roll_die
+    ld (dv), a
+    call roll_die
+    ld (dv+1), a
+    ld b, a
+    ld a, (dv)
+    cp b
+    jr z, again
+    ld a, 2
+    ld (dn), a
+    xor a
+    ld (isdbl), a
+    call clear_used
+    call draw_dice
+    ld a, (dv)
+    add a, 48
+    ld (msg_rolls+4), a
+    ld a, (dv+1)
+    add a, 48
+    ld (msg_rolls+10), a
+    ld a, (dv+1)
+    ld b, a
+    ld a, (dv)
+    cp b
+    jr c, cpufirst
+    xor a
+    ld (turn), a
+    ld hl, msg_rolls
+    ld de, msg_youstart
+    jr show
+.cpufirst
+    ld a, 1
+    ld (turn), a
+    ld hl, msg_rolls
+    ld de, msg_cpustarts
+.show
+    call show_msg
+    ld a, 1
+    ld (preset), a
+    ld b, 100
+    jp wait_frames
+
+human_turn:
+    ld a, (preset)
+    or a
+    jr nz, haveroll
+    ld hl, msg_yourturn
+    ld de, msg_pressroll
+    call show_msg
+    call waitany
+    call roll_dice
+.haveroll
+    xor a
+    ld (preset), a
+    call draw_dice
+    call side_hum
+    call turn_setup
+    call save_board
+    ld a, (need)
+    or a
+    jr nz, moveloop
+    ld hl, msg_nomoves
+    ld de, msg_presskey
+    call show_msg
+    jp waitany
+.moveloop
+    ld a, (need)
+    or a
+    jp z, done
+    call build_sources
+    ld hl, msg_yourmove
+    ld de, msg_undo
+    call show_msg
+    xor a
+    ld (srcidx), a
+.srcloop
+    ld a, (srcidx)
+    ld e, a
+    ld d, 0
+    ld hl, srclist
+    add hl, de
+    ld a, (hl)
+    call set_cursor
+    call getkey
+    cp K_PREV
+    jr z, sprev
+    cp K_NEXT
+    jr z, snext
+    cp K_UNDO
+    jr z, undo
+    cp K_SEL
+    jr z, select
+    jr srcloop
+.sprev
+    ld a, (srcidx)
+    or a
+    jr nz, sprev1
+    ld a, (srcn)
+.sprev1
+    dec a
+    ld (srcidx), a
+    jr srcloop
+.snext
+    ld a, (srcidx)
+    inc a
+    ld b, a
+    ld a, (srcn)
+    cp b
+    ld a, b
+    jr nz, snext1
+    xor a
+.snext1
+    ld (srcidx), a
+    jr srcloop
+.undo
+    call restore_board
+    call clear_used
+    ld a, (need0)
+    ld (need), a
+    ld a, NONE
+    ld (cursor), a
+    call drawboard
+    jp moveloop
+.select
+    ld a, (cursor)
+    ld (selfrom), a
+    call build_dests
+    xor a
+    ld (dstidx), a
+    ld a, (dstn)
+    cp 1
+    jr z, dodest
+    ld a, (selfrom)
+    ld (selsrc), a
+    call redraw_loc
+    ld hl, msg_moveto
+    ld de, msg_cancel
+    call show_msg
+.dstloop
+    ld a, (dstidx)
+    ld e, a
+    ld d, 0
+    ld hl, dstlist
+    add hl, de
+    ld a, (hl)
+    call set_cursor
+    call getkey
+    cp K_PREV
+    jr z, dprev
+    cp K_NEXT
+    jr z, dnext
+    cp K_CANCEL
+    jr z, dcancel
+    cp K_SEL
+    jr z, dodest
+    jr dstloop
+.dprev
+    ld a, (dstidx)
+    or a
+    jr nz, dprev1
+    ld a, (dstn)
+.dprev1
+    dec a
+    ld (dstidx), a
+    jr dstloop
+.dnext
+    ld a, (dstidx)
+    inc a
+    ld b, a
+    ld a, (dstn)
+    cp b
+    ld a, b
+    jr nz, dnext1
+    xor a
+.dnext1
+    ld (dstidx), a
+    jr dstloop
+.dcancel
+    ld a, NONE
+    ld (selsrc), a
+    call set_cursor
+    ld a, (selfrom)
+    call redraw_loc
+    ld hl, msg_yourmove
+    ld de, msg_undo
+    call show_msg
+    jp srcloop
+.dodest
+    ld a, (dstidx)
+    ld e, a
+    ld d, 0
+    ld hl, dstk
+    add hl, de
+    ld a, (hl)
+    ld e, a
+    ld hl, dused
+    add hl, de
+    ld (hl), 1
+    ld hl, dv
+    add hl, de
+    ld c, (hl)
+    ld a, (selfrom)
+    ld b, a
+    call domove
+    ld hl, need
+    dec (hl)
+    ld a, NONE
+    ld (selsrc), a
+    ld (cursor), a
+    call drawboard
+    jp moveloop
+.done
+    ld b, 10
+    jp wait_frames
+
+// build_sources lists the points the human can legally move from.
+build_sources:
+    xor a
+    ld (srcn), a
+    ld b, 25
+.fromlp
+    xor a
+    ld (bs_k), a
+.klp
+    push bc
+    ld a, (bs_k)
+    call humlegal
+    pop bc
+    jr nc, add
+    ld a, (bs_k)
+    inc a
+    ld (bs_k), a
+    ld c, a
+    ld a, (dn)
+    cp c
+    jr nz, klp
+    jr next
+.add
+    ld a, (srcn)
+    ld e, a
+    ld d, 0
+    ld hl, srclist
+    add hl, de
+    ld (hl), b
+    inc a
+    ld (srcn), a
+.next
+    djnz fromlp
+    ret
+
+// build_dests lists the legal destinations from point selfrom, and the
+// die index used for each.
+build_dests:
+    xor a
+    ld (dstn), a
+    ld (bs_k), a
+.klp
+    ld a, (selfrom)
+    ld b, a
+    ld a, (bs_k)
+    call humlegal
+    jr c, knext
+    ld a, (bs_k)
+    ld e, a
+    ld d, 0
+    ld hl, dv
+    add hl, de
+    ld c, (hl)          // die value
+    ld a, b
+    sub c
+    jr nc, toset
+    xor a
+.toset
+    ld (bd_to), a
+    // Already have this destination? Keep the smaller die.
+    ld a, (dstn)
+    or a
+    jr z, append
+    ld b, a
+    ld hl, dstlist
+    ld de, dstk
+.dup
+    ld a, (bd_to)
+    cp (hl)
+    jr nz, dupnext
+    push hl
+    ld a, (de)
+    ld l, a
+    ld h, 0
+    push bc
+    ld bc, dv
+    add hl, bc
+    pop bc
+    ld a, (hl)
+    pop hl
+    cp c
+    jr c, knext         // existing die is smaller
+    jr z, knext
+    ld a, (bs_k)
+    ld (de), a
+    jr knext
+.dupnext
+    inc hl
+    inc de
+    djnz dup
+.append
+    ld a, (dstn)
+    ld e, a
+    ld d, 0
+    ld hl, dstlist
+    add hl, de
+    ld a, (bd_to)
+    ld (hl), a
+    ld hl, dstk
+    add hl, de
+    ld a, (bs_k)
+    ld (hl), a
+    ld a, (dstn)
+    inc a
+    ld (dstn), a
+.knext
+    ld a, (bs_k)
+    inc a
+    ld (bs_k), a
+    ld c, a
+    ld a, (dn)
+    cp c
+    jr nz, klp
+    ret
+
+cpu_turn:
+    ld a, (preset)
+    or a
+    jr nz, haveroll
+    ld hl, msg_cputurn
+    ld de, blank12
+    call show_msg
+    ld b, 25
+    call wait_frames
+    call roll_dice
+.haveroll
+    xor a
+    ld (preset), a
+    call draw_dice
+    call side_cpu
+    call turn_setup
+    ld a, (need)
+    or a
+    jr nz, think
+    ld hl, msg_cpunomove
+    ld de, blank12
+    call show_msg
+    ld b, 100
+    jp wait_frames
+.think
+    ld hl, msg_thinking
+    ld de, blank12
+    call show_msg
+    call ai_think
+    ld hl, msg_cpumoves
+    ld de, blank12
+    call show_msg
+    xor a
+    ld (mv_i), a
+.mvloop
+    ld a, (bestlen)
+    ld b, a
+    ld a, (mv_i)
+    cp b
+    jr z, done
+    ld e, a
+    ld d, 0
+    ld hl, bestfrom
+    add hl, de
+    ld a, (hl)
+    ld (mv_from), a
+    ld hl, bestdie
+    add hl, de
+    ld a, (hl)
+    ld (mv_die), a
+    ld a, (mv_from)
+    call cpu2hum
+    ld (selsrc), a
+    call set_cursor
+    ld b, 30
+    call wait_frames
+    call side_cpu
+    ld a, (mv_from)
+    ld b, a
+    ld a, (mv_die)
+    ld c, a
+    call domove
+    ld a, e
+    call cpu2hum
+    ld (mv_to), a
+    ld a, (mv_die)
+    ld c, a
+    call mark_used
+    ld a, NONE
+    ld (selsrc), a
+    ld (cursor), a
+    call drawboard
+    ld a, (mv_to)
+    call set_cursor
+    ld b, 25
+    call wait_frames
+    ld hl, mv_i
+    inc (hl)
+    jr mvloop
+.done
+    ld a, NONE
+    jp set_cursor
+
+// check_win returns A = 0 if nobody has won, 1 if the human has,
+// 2 if the computer has.
+check_win:
+    ld a, (HUMB)
+    cp 15
+    ld a, 1
+    ret z
+    ld a, (CPUB)
+    cp 15
+    ld a, 2
+    ret z
+    xor a
+    ret
+
+// game_over: A = winner (1 human, 2 computer).
+game_over:
+    ld hl, CPUB         // loser's board
+    ld de, msg_youwin
+    cp 1
+    jr z, gotloser
+    ld hl, HUMB
+    ld de, msg_cpuwins
+.gotloser
+    ld (go_winner), a
+    ld (go_msg), de
+    ld c, 1             // points won
+    ld a, (hl)
+    or a
+    jr nz, scored
+    inc c               // gammon: the loser has borne nothing off
+    ld l, 19
+    ld b, 7
+    xor a
+.bgloop
+    or (hl)
+    inc l
+    djnz bgloop
+    or a
+    jr z, scored
+    inc c               // backgammon: still in the winner's home or on the bar
+.scored
+    ld a, c
+    ld (go_points), a
+    ld hl, score_hum
+    ld a, (go_winner)
+    cp 1
+    jr z, addscore
+    ld hl, score_cpu
+.addscore
+    ld a, (hl)
+    add a, c
+    cp 100
+    jr c, scoreok
+    sub 100
+.scoreok
+    ld (hl), a
+    ld a, NONE
+    ld (cursor), a
+    xor a
+    ld (dn), a
+    call drawboard
+    ld a, (go_points)
+    ld de, msg_single
+    cp 1
+    jr z, showover
+    ld de, msg_gammon
+    cp 2
+    jr z, showover
+    ld de, msg_backgammon
+.showover
+    ld hl, (go_msg)
+    call show_msg
+    ld b, 100
+    call wait_frames
+    jp waitany
+
+// ---------------------------------------------------------------------
+// Text.
+// ---------------------------------------------------------------------
+
+blank12:        ds "            " ; db 0
+blank2:         ds "  " ; db 0
+str_off:        ds " OFF" ; db 0
+str_you:        ds "Y " ; db 0
+str_cpu:        ds "C " ; db 0
+msg_opening:    ds "OPENING ROLL" ; db 0
+msg_rolls:      ds "YOU:0 CPU:0" ; db 0
+msg_youstart:   ds "YOU START" ; db 0
+msg_cpustarts:  ds "CPU STARTS" ; db 0
+msg_yourturn:   ds "YOUR TURN" ; db 0
+msg_pressroll:  ds "KEY TO ROLL" ; db 0
+msg_nomoves:    ds "NO MOVES" ; db 0
+msg_presskey:   ds "PRESS A KEY" ; db 0
+msg_yourmove:   ds "YOUR MOVE" ; db 0
+msg_undo:       ds "U:UNDO" ; db 0
+msg_moveto:     ds "MOVE TO?" ; db 0
+msg_cancel:     ds "X:CANCEL" ; db 0
+msg_cputurn:    ds "CPU TURN" ; db 0
+msg_thinking:   ds "THINKING..." ; db 0
+msg_cpumoves:   ds "CPU MOVES" ; db 0
+msg_cpunomove:  ds "CPU CAN'T GO" ; db 0
+msg_youwin:     ds "YOU WIN!" ; db 0
+msg_cpuwins:    ds "CPU WINS!" ; db 0
+msg_single:     ds "1 POINT" ; db 0
+msg_gammon:     ds "GAMMON: 2" ; db 0
+msg_backgammon: ds "BACKGAMMON:3" ; db 0
+
+// Title screen: row, column, attribute, zero-terminated text. NONE ends.
+title_text:
+    db 3, 11, 0x46 ; ds "BACKGAMMON" ; db 0
+    db 5, 9, 0x05 ; ds "ZX SPECTRUM 48K" ; db 0
+    db 8, 2, 0x06 ; ds "YOU ARE YELLOW. MOVE FROM 24" ; db 0
+    db 9, 2, 0x06 ; ds "TO 1, AND BEAR OFF BOTTOM" ; db 0
+    db 10, 2, 0x06 ; ds "RIGHT. THE CPU PLAYS BLACK." ; db 0
+    db 13, 6, 0x07 ; ds "O 5 6    PREVIOUS" ; db 0
+    db 14, 6, 0x07 ; ds "P 8 7    NEXT" ; db 0
+    db 15, 6, 0x07 ; ds "SPACE    SELECT" ; db 0
+    db 16, 6, 0x07 ; ds "X 0      CANCEL" ; db 0
+    db 17, 6, 0x07 ; ds "U        UNDO TURN" ; db 0
+    db 21, 9, 0xc7 ; ds "PRESS ANY KEY" ; db 0
+    db NONE
+
+// ---------------------------------------------------------------------
+// Variables.
+// ---------------------------------------------------------------------
+
+frames:     dw 0
+seed:       dw 1
+score_hum:  db 0
+score_cpu:  db 0
+turn:       db 0        // 0 = human, 1 = computer
+preset:     db 0        // 1 if the dice for this turn are already rolled
+me_hi:      db 0        // page of the board of the side to move
+opp_hi:     db 0        // page of the other board
+curside:    db 0        // side for highlighting the bar and tray
+
+dv:         db 0, 0, 0, 0   // dice values
+dused:      db 0, 0, 0, 0   // 1 if the die has been used
+dn:         db 0            // number of dice (2, or 4 for doubles)
+isdbl:      db 0
+
+need:       db 0        // dice still to play this turn
+need0:      db 0        // dice to play at the start of the turn
+forcehi:    db 0        // if non-zero, the die that must be played
+maxlen:     db 0
+hi:         db 0
+abort:      db 0
+mode:       db 0
+searchn:    db 0
+hl_k:       db 0
+hl_r:       db 0
+
+seqfrom:    db 0, 0, 0, 0
+seqdie:     db 0, 0, 0, 0
+bestfrom:   db 0, 0, 0, 0
+bestdie:    db 0, 0, 0, 0
+bestlen:    db 0
+bestscore:  dw 0
+
+pc_back:    db 0
+ev_mypips:  dw 0
+ev_opppips: dw 0
+ev_myback:  db 0
+ev_score:   dw 0
+ev_run:     db 0
+ev_home:    db 0
+
+cursor:     db NONE
+selsrc:     db NONE
+selfrom:    db 0
+srcn:       db 0
+srcidx:     db 0
+srclist:    db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+dstn:       db 0
+dstidx:     db 0
+dstlist:    db 0, 0, 0, 0
+dstk:       db 0, 0, 0, 0
+bs_k:       db 0
+bd_to:      db 0
+
+mv_i:       db 0
+mv_from:    db 0
+mv_die:     db 0
+mv_to:      db 0
+
+go_winner:  db 0
+go_points:  db 0
+go_msg:     dw 0
+
+dc_col:     db 0
+dc_top:     db 0
+dc_n:       db 0
+dc_nv:      db 0
+dc_cink:    db 0
+dc_tink:    db 0
+dc_paper:   db 0
+dc_bright:  db 0
+dc_flash:   db 0
+dc_r:       db 0
+dp_p:       db 0
+pl_units:   db 0
+pl_tens:    db 0
+tr_cnt:     db 0
+fa_attr:    db 0
+text_attr:  db ATTR_TEXT
+dd_i:       db 0
+dd_col:     db 0
+dd_attr:    db 0
+
+blank_gfx:
+    db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+// ---------------------------------------------------------------------
+// Graphics data.
+// ---------------------------------------------------------------------
+
+// ---- generated by gen_gfx.py ----
+// Font: characters 32 (space) to 90 (Z), 8 bytes each.
+font:
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // ' '
+    db 0x00, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00   // '!'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '"'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '#'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '$'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '%'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '&'
+    db 0x00, 0x18, 0x18, 0x30, 0x00, 0x00, 0x00, 0x00   // "'"
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '('
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // ')'
+    db 0x00, 0x00, 0x5a, 0x3c, 0x7e, 0x3c, 0x5a, 0x00   // '*'
+    db 0x00, 0x00, 0x18, 0x18, 0x7e, 0x18, 0x18, 0x00   // '+'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x30   // ','
+    db 0x00, 0x00, 0x00, 0x00, 0x7e, 0x00, 0x00, 0x00   // '-'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00   // '.'
+    db 0x00, 0x06, 0x0c, 0x18, 0x30, 0x60, 0x00, 0x00   // '/'
+    db 0x00, 0x3c, 0x66, 0x6e, 0x76, 0x66, 0x3c, 0x00   // '0'
+    db 0x00, 0x18, 0x38, 0x18, 0x18, 0x18, 0x7e, 0x00   // '1'
+    db 0x00, 0x3c, 0x66, 0x0c, 0x18, 0x30, 0x7e, 0x00   // '2'
+    db 0x00, 0x3c, 0x66, 0x0c, 0x06, 0x66, 0x3c, 0x00   // '3'
+    db 0x00, 0x0c, 0x1c, 0x3c, 0x6c, 0x7e, 0x0c, 0x00   // '4'
+    db 0x00, 0x7e, 0x60, 0x7c, 0x06, 0x66, 0x3c, 0x00   // '5'
+    db 0x00, 0x3c, 0x60, 0x7c, 0x66, 0x66, 0x3c, 0x00   // '6'
+    db 0x00, 0x7e, 0x06, 0x0c, 0x18, 0x18, 0x18, 0x00   // '7'
+    db 0x00, 0x3c, 0x66, 0x3c, 0x66, 0x66, 0x3c, 0x00   // '8'
+    db 0x00, 0x3c, 0x66, 0x66, 0x3e, 0x06, 0x3c, 0x00   // '9'
+    db 0x00, 0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00   // ':'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // ';'
+    db 0x00, 0x0c, 0x18, 0x30, 0x18, 0x0c, 0x00, 0x00   // '<'
+    db 0x00, 0x00, 0x7e, 0x00, 0x7e, 0x00, 0x00, 0x00   // '='
+    db 0x00, 0x30, 0x18, 0x0c, 0x18, 0x30, 0x00, 0x00   // '>'
+    db 0x00, 0x3c, 0x66, 0x0c, 0x18, 0x00, 0x18, 0x00   // '?'
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // '@'
+    db 0x00, 0x3c, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x00   // 'A'
+    db 0x00, 0x7c, 0x66, 0x7c, 0x66, 0x66, 0x7c, 0x00   // 'B'
+    db 0x00, 0x3c, 0x66, 0x60, 0x60, 0x66, 0x3c, 0x00   // 'C'
+    db 0x00, 0x78, 0x6c, 0x66, 0x66, 0x6c, 0x78, 0x00   // 'D'
+    db 0x00, 0x7e, 0x60, 0x7c, 0x60, 0x60, 0x7e, 0x00   // 'E'
+    db 0x00, 0x7e, 0x60, 0x7c, 0x60, 0x60, 0x60, 0x00   // 'F'
+    db 0x00, 0x3c, 0x60, 0x6e, 0x66, 0x66, 0x3e, 0x00   // 'G'
+    db 0x00, 0x66, 0x66, 0x7e, 0x66, 0x66, 0x66, 0x00   // 'H'
+    db 0x00, 0x7e, 0x18, 0x18, 0x18, 0x18, 0x7e, 0x00   // 'I'
+    db 0x00, 0x0e, 0x06, 0x06, 0x06, 0x66, 0x3c, 0x00   // 'J'
+    db 0x00, 0x66, 0x6c, 0x78, 0x78, 0x6c, 0x66, 0x00   // 'K'
+    db 0x00, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7e, 0x00   // 'L'
+    db 0x00, 0x63, 0x77, 0x7f, 0x6b, 0x63, 0x63, 0x00   // 'M'
+    db 0x00, 0x66, 0x76, 0x7e, 0x6e, 0x66, 0x66, 0x00   // 'N'
+    db 0x00, 0x3c, 0x66, 0x66, 0x66, 0x66, 0x3c, 0x00   // 'O'
+    db 0x00, 0x7c, 0x66, 0x66, 0x7c, 0x60, 0x60, 0x00   // 'P'
+    db 0x00, 0x3c, 0x66, 0x66, 0x6e, 0x6c, 0x36, 0x00   // 'Q'
+    db 0x00, 0x7c, 0x66, 0x66, 0x7c, 0x6c, 0x66, 0x00   // 'R'
+    db 0x00, 0x3c, 0x60, 0x3c, 0x06, 0x66, 0x3c, 0x00   // 'S'
+    db 0x00, 0x7e, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00   // 'T'
+    db 0x00, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3c, 0x00   // 'U'
+    db 0x00, 0x66, 0x66, 0x66, 0x66, 0x3c, 0x18, 0x00   // 'V'
+    db 0x00, 0x63, 0x63, 0x6b, 0x7f, 0x77, 0x63, 0x00   // 'W'
+    db 0x00, 0x66, 0x3c, 0x18, 0x3c, 0x66, 0x66, 0x00   // 'X'
+    db 0x00, 0x66, 0x66, 0x3c, 0x18, 0x18, 0x18, 0x00   // 'Y'
+    db 0x00, 0x7e, 0x0c, 0x18, 0x30, 0x60, 0x7e, 0x00   // 'Z'
+
+// A 16x16 checker (2 bytes per pixel row).
+checker_gfx:
+    db 0x00, 0x00   // ................
+    db 0x07, 0xe0   // .....XXXXXX.....
+    db 0x1f, 0xf8   // ...XXXXXXXXXX...
+    db 0x3f, 0xfc   // ..XXXXXXXXXXXX..
+    db 0x7c, 0x3e   // .XXXXX....XXXXX.
+    db 0x7b, 0xde   // .XXXX.XXXX.XXXX.
+    db 0xf7, 0xef   // XXXX.XXXXXX.XXXX
+    db 0xf7, 0xef   // XXXX.XXXXXX.XXXX
+    db 0xf7, 0xef   // XXXX.XXXXXX.XXXX
+    db 0xf7, 0xef   // XXXX.XXXXXX.XXXX
+    db 0x7b, 0xde   // .XXXX.XXXX.XXXX.
+    db 0x7c, 0x3e   // .XXXXX....XXXXX.
+    db 0x3f, 0xfc   // ..XXXXXXXXXXXX..
+    db 0x1f, 0xf8   // ...XXXXXXXXXX...
+    db 0x07, 0xe0   // .....XXXXXX.....
+    db 0x00, 0x00   // ................
+
+// Die faces 1 to 6, 16x16 each (32 bytes per face).
+dice_gfx:
+    // face 1
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x81, 0x81   // X......XX......X
+    db 0x81, 0x81   // X......XX......X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    // face 2
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x31   // X.........XX...X
+    db 0x80, 0x31   // X.........XX...X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x8c, 0x01   // X...XX.........X
+    db 0x8c, 0x01   // X...XX.........X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    // face 3
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x19   // X..........XX..X
+    db 0x80, 0x19   // X..........XX..X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x81, 0x81   // X......XX......X
+    db 0x81, 0x81   // X......XX......X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x98, 0x01   // X..XX..........X
+    db 0x98, 0x01   // X..XX..........X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    // face 4
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    // face 5
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x98, 0x19   // X..XX......XX..X
+    db 0x98, 0x19   // X..XX......XX..X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x81, 0x81   // X......XX......X
+    db 0x81, 0x81   // X......XX......X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x98, 0x19   // X..XX......XX..X
+    db 0x98, 0x19   // X..XX......XX..X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    // face 6
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x8c, 0x31   // X...XX....XX...X
+    db 0x80, 0x01   // X..............X
+    db 0x80, 0x01   // X..............X
+    db 0x7f, 0xfe   // .XXXXXXXXXXXXXX.
