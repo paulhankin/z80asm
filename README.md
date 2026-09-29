@@ -105,3 +105,5 @@ Examples
 ========
 
 `examples/backgammon` contains a complete ZX Spectrum game written with this assembler: backgammon with a computer opponent.
+
+`examples/hollowmere` is a quiet isometric 3D exploration game: wander the 91 empty rooms of a castle, looking for the eight things that were once loved.
